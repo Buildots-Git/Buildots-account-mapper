@@ -1,0 +1,10 @@
+# dependencies and build output
+node_modules
+dist
+
+# secrets and anything that holds real customer or user data. NEVER commit these.
+.env
+data/*
+!data/.gitkeep
+*.log
+.DS_Store

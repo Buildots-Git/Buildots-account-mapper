@@ -1,0 +1,33 @@
+{
+  "name": "account-mapper",
+  "version": "1.0.0",
+  "description": "Miro-style stakeholder map for Salesforce accounts",
+  "main": "index.js",
+  "scripts": {
+    "test": "npm run test:auth",
+    "dev": "concurrently -n web,api \"vite\" \"node server/index.js\"",
+    "start": "node server/index.js",
+    "build": "vite build",
+    "test:auth": "node scripts/auth-test.mjs /tmp/account-mapper-authtest"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@tesseract.js-data/eng": "^1.0.0",
+    "@xyflow/react": "^12.12.0",
+    "express": "^5.2.1",
+    "pdfjs-dist": "^6.4.299",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "sharp": "^0.35.5",
+    "tesseract.js": "^7.0.0",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
+    "vite": "^8.3.2"
+  }
+}
