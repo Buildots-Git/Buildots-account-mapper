@@ -41,7 +41,7 @@ export const useStore = create((set, get) => ({
   overrides: {}, // contactId -> { reportsTo, manual, region, role, es, enterprise, title, hidden, fields }
   positions: {}, extras: [], reference: DEFAULT_REF, accountNotes: '', toast: null, comments: {}, // comments: personId | '__board' -> [{ id, author, at, text }]
   showFields: ['Title'], showRelated: { opps: true, leads: true, cs: true }, hideUntitled: true, highlight: { role: true, es: true, ecm: true },
-  view: 'board', psearch: { field: 'any', q: '', only: true, filters: { role: '', es: '', ecm: '', department: '', region: '', country: '', review: '' } }, collapsed: {}, collapseAll: null, outline: false, gridCols: ['title', 'reportsTo', 'role', 'es', 'vis'], selected: null, past: [], future: [], enrichTarget: null, focusId: null,
+  view: 'board', psearch: { field: 'any', q: '', only: true, filters: { role: '', es: '', ecm: '', account: '', department: '', region: '', country: '', review: '' } }, collapsed: {}, collapseAll: null, outline: false, gridCols: ['title', 'reportsTo', 'role', 'es', 'vis'], selected: null, past: [], future: [], enrichTarget: null, focusId: null,
 
   setTheme(t) {
     try { localStorage.setItem('am-theme', t); } catch { /* private mode etc. - still applies for this session */ }
@@ -74,7 +74,7 @@ export const useStore = create((set, get) => ({
   },
 
   async open(id, name) {
-    set({ loading: true, loadingName: name || null, error: null, selected: null, past: [], future: [], collapsed: {}, collapseAll: null, psearch: { field: 'any', q: '', only: true, filters: { role: '', es: '', ecm: '', department: '', region: '', country: '', review: '' } } });
+    set({ loading: true, loadingName: name || null, error: null, selected: null, past: [], future: [], collapsed: {}, collapseAll: null, psearch: { field: 'any', q: '', only: true, filters: { role: '', es: '', ecm: '', account: '', department: '', region: '', country: '', review: '' } } });
     try {
       const board = await api(`/boards/${id}`);
       const dflt = board?.cardLayout ? null : readCardDefault(); // a board never customised starts from the user's saved default
@@ -226,7 +226,7 @@ export const useStore = create((set, get) => ({
   },
   setSearch(patch) { set((s) => ({ psearch: { ...s.psearch, ...patch } })); },
   setFilter(k, v) { set((s) => ({ psearch: { ...s.psearch, filters: { ...s.psearch.filters, [k]: v } } })); },
-  clearFilters() { set((s) => ({ psearch: { ...s.psearch, q: '', filters: { role: '', es: '', ecm: '', department: '', region: '', country: '', review: '' } } })); },
+  clearFilters() { set((s) => ({ psearch: { ...s.psearch, q: '', filters: { role: '', es: '', ecm: '', account: '', department: '', region: '', country: '', review: '' } } })); },
   // Branches: collapsed[id] true/false overrides the default (everything below the top levels starts folded).
   toggleBranch(id, now) { set((s) => ({ collapsed: { ...s.collapsed, [id]: !now } })); },
   setAllBranches(mode) { set({ collapsed: {}, collapseAll: mode }); },

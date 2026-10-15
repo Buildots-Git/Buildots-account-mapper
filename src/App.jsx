@@ -92,6 +92,7 @@ export default function App() {
           <button className="btn ghost" title="Switch account" onClick={() => setMenu(menu === 'switch' ? null : 'switch')}>{!s.loading && <Logo website={s.account.Website} size={20} className="hdr-logo" />}{s.loading && s.loadingName ? s.loadingName : s.account.Name} ▾</button>
           {menu === 'switch' && <AccountSwitcher current={s.account.Id} onClose={() => setMenu(null)} />}
         </div>
+        {s.account.ParentId && !s.loading && <button className="btn ghost sm" title={`This account belongs to ${s.account.Parent}`} onClick={() => s.open(s.account.ParentId, s.account.Parent)}>↑ Part of {s.account.Parent}</button>}
         <span className="board-only" title="Everything you change here stays on this board until you choose Push changes to Salesforce.">Board only · Salesforce unchanged</span>
         {!s.loading && s.data?.contacts?.some((c) => c.Account_Target) && <span className="target-badge" title="Target / sales-focus account">◎ Target account</span>}
         <div className="seg">

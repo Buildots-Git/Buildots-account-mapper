@@ -1,5 +1,6 @@
 import React, { useMemo, useCallback } from 'react';
 import { ReactFlow, applyNodeChanges, Background, BackgroundVariant, Controls, MiniMap, BaseEdge, EdgeLabelRenderer, getSmoothStepPath, useReactFlow, useNodesInitialized, ReactFlowProvider } from '@xyflow/react';
+import AccountNode from './AccountNode.jsx';
 import ContactNode from './ContactNode.jsx';
 import { NoteNode, TextNode, PinNode } from './ItemNodes.jsx';
 import { useStore, effectiveTheme } from './store.js';
@@ -43,7 +44,7 @@ function layoutTree(people, parentOf, W, H) {
   let cx = 0; roots.forEach((r) => { place(r, cx, 0); cx += r.w + GX * 2; });
   return pos;
 }
-const nodeTypes = { contact: ContactNode, note: NoteNode, text: TextNode, pin: PinNode };
+const nodeTypes = { contact: ContactNode, account: AccountNode, note: NoteNode, text: TextNode, pin: PinNode };
 
 // A reporting line with a × button (shown on hover, or when either end is selected) to remove it.
 function LinkEdge({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, id, data }) {
@@ -72,12 +73,23 @@ export function useGraph() {
     const hit = (p) => matchesSearch(p, search);
     // With "only show matches" the matching people stay, plus the managers above them so you still see where they sit.
     const onB = everyone.filter((p) => onBoard(p, hideUntitled));
+    // Account families: each subsidiary becomes a node of its own that its people hang from (STO -> Layton -> Layton's team).
+    const fam = data.family || []; const famMode = fam.length > 1; const famById = Object.fromEntries(fam.map((f) => [f.Id, f]));
+    // The parent's own contacts get their own group so every account folds separately.
+    const rootId = fam[0]?.Id; const ownKey = `acct:${rootId}:own`;
+    const acctParent = (p) => (famMode && !p.virtual && p.AccountId && famById[p.AccountId] ? (p.AccountId === rootId ? ownKey : `acct:${p.AccountId}`) : null);
+    let onBV = onB;
+    if (famMode) {
+      const need = new Set([fam[0].Id]);
+      for (const a of new Set(onB.map((p) => p.AccountId).filter((a) => famById[a]))) { let c = a, n = 0; while (c && famById[c] && !need.has(c) && n++ < 10) { need.add(c); c = famById[c].ParentId; } }
+      onBV = [...(onB.some((p) => p.AccountId === rootId) ? [{ Id: ownKey, virtual: true, own: true, Name: `${fam[0].Name} — own contacts`, acct: fam[0], reportsTo: `acct:${rootId}` }] : []), ...fam.filter((f) => need.has(f.Id)).map((f) => ({ Id: `acct:${f.Id}`, virtual: true, Name: f.Name, acct: f, reportsTo: f.ParentId && need.has(f.ParentId) ? `acct:${f.ParentId}` : null })), ...onB];
+    }
     let keep = null;
     if (searching && search.only) {
-      keep = new Set(); const by0 = Object.fromEntries(onB.map((p) => [p.Id, p]));
-      onB.forEach((p) => { if (!hit(p)) return; let c = p.Id, n = 0; while (c && !keep.has(c) && by0[c] && n++ < 60) { keep.add(c); c = by0[c].reportsTo; } });
+      keep = new Set(); const by0 = Object.fromEntries(onBV.map((p) => [p.Id, p]));
+      onB.forEach((p) => { if (!hit(p)) return; let c = p.Id, n = 0; while (c && !keep.has(c) && by0[c] && n++ < 60) { keep.add(c); c = by0[c].reportsTo || acctParent(by0[c]); } });
     }
-    const shownAll = onB.filter((p) => !keep || keep.has(p.Id));
+    const shownAll = onBV.filter((p) => !keep || keep.has(p.Id));
     const ids = new Set(shownAll.map((p) => p.Id));
     const byId = Object.fromEntries(shownAll.map((p) => [p.Id, p]));
     const allById = Object.fromEntries(everyone.map((p) => [p.Id, p]));
@@ -85,7 +97,8 @@ export function useGraph() {
     const parentOf = (p) => {
       let cur = p.reportsTo; let hops = 0;
       while (cur && !ids.has(cur) && hops++ < 60) cur = allById[cur]?.reportsTo;
-      return cur && cur !== p.Id && ids.has(cur) ? cur : null;
+      if (cur && cur !== p.Id && ids.has(cur)) return cur;
+      const ap = acctParent(p); return ap && ids.has(ap) ? ap : null;
     };
     // A person inherits their region from the nearest ancestor that has one.
     const regionCache = {};
@@ -101,19 +114,22 @@ export function useGraph() {
     const depthC = {};
     const depthOf = (id, n = 0) => (id in depthC ? depthC[id] : (depthC[id] = (() => { const par = byId[id] && parentOf(byId[id]); return par && n < 40 ? 1 + depthOf(par, n + 1) : 0; })()));
     const descC = {};
-    const desc = (id) => (id in descC ? descC[id] : (descC[id] = (kids[id] || []).reduce((a, k) => a + 1 + desc(k), 0)));
+    const desc = (id) => (id in descC ? descC[id] : (descC[id] = (kids[id] || []).reduce((a, k) => a + (byId[k]?.virtual ? 0 : 1) + desc(k), 0)));
     // Default view: reveal levels top-down only while the board stays small enough to read at a glance (~30 cards).
     let foldDepth = 99;
-    if (shownAll.length > 40) {
+    if (!famMode && shownAll.length > 40) {
       const byDepth = {}; shownAll.forEach((p) => { const d = depthOf(p.Id); byDepth[d] = (byDepth[d] || 0) + 1; });
       let total = 0; foldDepth = 0;
       for (let d = 0; byDepth[d]; d++) { total += byDepth[d]; if (total > 30 && d > 0) break; foldDepth = d; }
     }
+    // Family boards: account groups start folded (so you see the whole company at a glance); inside one, two levels show.
+    const teamDepth = (id) => { let d = 0, cur = id, n = 0; while (cur && !byId[cur]?.virtual && n++ < 60) { d++; cur = parentOf(byId[cur]); } return d; };
     const isFolded = (id) => {
       if (searching || !kids[id]) return false;
       if (id in collapsed) return collapsed[id];
       if (collapseAll === 'expand') return false;
       if (collapseAll === 'collapse') return true;
+      if (famMode) return byId[id].virtual ? kids[id].some((k) => !byId[k]?.virtual) : teamDepth(id) >= 2;
       return depthOf(id) >= foldDepth;
     };
     const hiddenByFold = (p) => { let cur = parentOf(p); let n = 0; while (cur && n++ < 60) { if (isFolded(cur)) return true; cur = parentOf(byId[cur]); } return false; };
@@ -131,6 +147,10 @@ export function useGraph() {
     const auto = layoutTree(people, parentOf, cardLayout.width, Math.max(120, Math.round(rowH * (0.8 + 0.2 * cardLayout.font))));
 
     const nodes = people.map((p) => {
+      if (p.virtual) {
+        const { x, y } = positions[p.Id] || auto[p.Id];
+        return { id: p.Id, type: 'account', deletable: false, position: { x, y }, data: { acct: p.acct, vid: p.Id, own: !!p.own, label: p.own ? 'Own contacts' : p.Name, root: !p.own && p.acct.Id === data.account.Id, n: desc(p.Id), branch: kids[p.Id] ? { n: desc(p.Id), folded: isFolded(p.Id) } : null } };
+      }
       const par = parentOf(p); const r = region(p); const pr = par ? region(byId[par]) : null;
       const { x, y } = positions[p.Id] || auto[p.Id];
       return { id: p.Id, type: 'contact', deletable: false, position: { x, y },
@@ -204,12 +224,13 @@ function Inner() {
   const onNodeDrag = useCallback((e, node, all) => { const moved = all?.length ? all : [node]; setDropTarget(moved.every(isPerson) ? under(e, moved.map((n) => n.id)) : null); }, []);
   const onDragStop = useCallback((e, node, all) => {
     const moved = all?.length ? all : [node];
-    const things = moved.filter((n) => !isPerson(n)), people = moved.filter(isPerson);
+    const things = moved.filter((n) => !isPerson(n) && n.type !== 'account'), people = moved.filter((n) => isPerson(n) || n.type === 'account');
     setDropTarget(null);
     if (things.length) useStore.getState().moveItems(Object.fromEntries(things.map((n) => [n.id, { x: n.position.x, y: n.position.y }])));
     if (!people.length) return;
-    const target = things.length ? null : under(e, people.map((n) => n.id));
-    if (target) { useStore.getState().reparent(people.map((n) => n.id), target); return; }
+    // Dropping on an account node (or when an account node moved) is just a move; only dropping on a person re-parents.
+    const target = things.length || people.some((n) => n.type === 'account') ? null : under(e, people.map((n) => n.id));
+    if (target && !String(target).startsWith('acct:')) { useStore.getState().reparent(people.map((n) => n.id), target); return; }
     setPositions(Object.fromEntries(people.map((n) => [n.id, n.position])));
   }, [setPositions]);
 

@@ -8,6 +8,7 @@ export default function OutlineView() {
   const store = useStore();
   const { psearch: search, hideUntitled, select, selected } = store;
   const people = useMemo(() => store.people().filter((p) => onBoard(p, hideUntitled)), [store.data, store.extras, store.overrides, hideUntitled]);
+  const family = store.data?.family || [];
   const [open, setOpen] = useState({});
   const active = filtersActive(search);
   const { roots, kids, count } = useMemo(() => {
@@ -41,7 +42,15 @@ export default function OutlineView() {
       <div className="grid-bar"><span className="muted">{people.length} people on the board</span><span className="grow" />
         <button className="link" onClick={() => setOpen(Object.fromEntries(people.map((p) => [p.Id, true])))}>Expand all</button>
         <button className="link" onClick={() => setOpen(Object.fromEntries(people.map((p) => [p.Id, false])))}>Collapse all</button></div>
-      <div className="ol-scroll">{roots.map((p) => <Row key={p.Id} p={p} depth={0} />)}</div>
+      <div className="ol-scroll">{family.length > 1
+        ? family.map((f) => { const rs = roots.filter((p) => p.AccountId === f.Id); if (!rs.length) return null; const k = `acct:${f.Id}`; const o = k in open ? open[k] : f.Id === family[0].Id || active;
+          return (<React.Fragment key={f.Id}>
+            <div className="ol-row ol-acct" onClick={() => setOpen({ ...open, [k]: !o })}><span className="ol-tw">{o ? '▾' : '▸'}</span><b>{f.Name}</b><span className="muted sm"> {f.people} people{f.Target ? ' · Target' : ''}</span></div>
+            {o && rs.map((p) => <Row key={p.Id} p={p} depth={1} />)}
+          </React.Fragment>); })
+        : roots.map((p) => <Row key={p.Id} p={p} depth={0} />)}
+        {family.length > 1 && roots.filter((p) => !family.some((f) => f.Id === p.AccountId)).map((p) => <Row key={p.Id} p={p} depth={0} />)}
+      </div>
     </div>
   );
 }

@@ -48,7 +48,8 @@ export function inferHierarchy(people, locked = {}) {
   for (const me of info) {
     if (me.p.Id in locked) { out[me.p.Id] = locked[me.p.Id]; continue; }
     if (me.rank === 0 || !me.p.Title) { out[me.p.Id] = null; continue; } // no title -> nothing to infer from
-    let pool = info.filter((o) => o.p.Id !== me.p.Id && o.rank < me.rank);
+    // People report within their own account; across accounts only by hand (people without an account, e.g. added ones, can match anyone).
+    let pool = info.filter((o) => o.p.Id !== me.p.Id && o.rank < me.rank && (!o.p.AccountId || !me.p.AccountId || o.p.AccountId === me.p.AccountId));
     if (!pool.length) { out[me.p.Id] = null; continue; }
     // Corporate chiefs report straight to the CEO; everyone else to the closest level above.
     if (isCorporateChief(me.p.Title)) {

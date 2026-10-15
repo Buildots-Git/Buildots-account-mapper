@@ -34,7 +34,7 @@ export default function SearchBar() {
         </select>
         <input list="search-suggest" placeholder={PLACEHOLDER[search.field]} value={search.q} onChange={(e) => setSearch({ q: e.target.value })} />
         <datalist id="search-suggest">{suggestions.map((v) => <option key={v} value={v} />)}</datalist>
-        {FILTERS.filter(([k]) => k !== 'review' || unrecognised > 0).map(([k, label]) => {
+        {FILTERS.filter(([k]) => (k !== 'review' || unrecognised > 0) && (k !== 'account' || (store.data?.family?.length || 0) > 1)).map(([k, label]) => {
           const opts = filterOptions(people, k, filters);
           return (
             <select key={k} className={`flt${filters[k] ? ' on' : ''}`} value={filters[k]} title={`Filter by ${label.toLowerCase()}`} onChange={(e) => useStore.getState().setFilter(k, e.target.value)}>

@@ -560,6 +560,13 @@ export function AccountPanel({ onClose }) {
       <Head title={a.Name} sub={flags.join(' · ') || 'Account'} onClose={onClose} />
       <dl>{rows.map(([k, v]) => <React.Fragment key={k}><dt>{k}</dt><dd>{v}</dd></React.Fragment>)}
         {a.Website && <><dt>Website</dt><dd><a href={a.Website} target="_blank" rel="noreferrer">{a.Website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')} ↗</a></dd></>}</dl>
+      {a.ParentId && <div className="muted sm" style={{ margin: '8px 0' }}>Part of <b>{a.Parent}</b> · <button className="link" onClick={() => store.open(a.ParentId, a.Parent)}>Open the parent / family board ↗</button></div>}
+      {(data.family?.length || 0) > 1 && <>
+        <h4>Accounts in this family <em>{data.family.length}</em></h4>
+        <ul className="rel">{data.family.map((f) => (
+          <li key={f.Id}><b>{f.Name}</b><span>{f.people} people{f.Target ? ' · Target' : ''}{f.SalesFocus ? ' · Sales focus' : ''}{f.Id !== a.Id && <> · <button className="link" onClick={() => store.open(f.Id, f.Name)}>open board</button></>}</span></li>))}</ul>
+        {data.truncated && <div className="warn">Only the first 2,000 contacts were loaded for this family.</div>}
+      </>}
       {!demo && <a className="btn ghost sm" href={`https://buildots.lightning.force.com/lightning/r/Account/${a.Id}/view`} target="_blank" rel="noreferrer">Open in Salesforce ↗</a>}
       {a.Description && <><h4>Salesforce description</h4><pre className="summary">{a.Description}</pre></>}
       <h4>Company info / research</h4>

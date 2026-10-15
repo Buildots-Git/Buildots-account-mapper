@@ -5,7 +5,7 @@ import { matchesSearch, onBoard } from './search.js';
 
 // Every column the grid can show. `w` is its width in px; the table scrolls sideways only if you add many.
 const COLS = [
-  { k: 'title', label: 'Title', w: 210 }, { k: 'reportsTo', label: 'Reports to', w: 190 }, { k: 'department', label: 'Department', w: 130 },
+  { k: 'account', label: 'Account', w: 170 }, { k: 'title', label: 'Title', w: 210 }, { k: 'reportsTo', label: 'Reports to', w: 190 }, { k: 'department', label: 'Department', w: 130 },
   { k: 'region', label: 'Region', w: 120 }, { k: 'country', label: 'Country', w: 110 }, { k: 'role', label: 'Role', w: 140 },
   { k: 'es', label: 'ES status', w: 110 }, { k: 'status', label: 'Contact status', w: 150 }, { k: 'ecm', label: 'ECM ★', w: 70 }, { k: 'email', label: 'Email', w: 210 },
   { k: 'source', label: 'Source', w: 95 }, { k: 'vis', label: 'On board', w: 80 },
@@ -16,7 +16,8 @@ export default function GridView() {
   const { patch, select, selected, psearch: search, gridCols, hideUntitled, setVisible } = store;
   const people = useMemo(() => store.people(), [store.data, store.extras, store.overrides]);
   const [menu, setMenu] = useState(false);
-  const cols = COLS.filter((c) => gridCols.includes(c.k));
+  const family = (store.data?.family?.length || 0) > 1;
+  const cols = COLS.filter((c) => (c.k === 'account' ? family : gridCols.includes(c.k)));
   const setCols = (list) => store.setShow('gridCols', list);
   const rows = useMemo(() => people.filter((p) => matchesSearch(p, search)).sort((a, b) => rankOf(a.Title) - rankOf(b.Title) || a.Name.localeCompare(b.Name)), [people, search]);
   const byId = useMemo(() => Object.fromEntries(people.map((p) => [p.Id, p])), [people]);
@@ -35,6 +36,7 @@ export default function GridView() {
           <option value="">— top —</option>
           {people.filter((o) => o.Id !== p.Id).sort((a, b) => a.Name.localeCompare(b.Name)).map((o) => <option key={o.Id} value={o.Id}>{o.Name}</option>)}
         </select>);
+      case 'account': return <span className="ell" title={p.AccountName || ''}>{p.AccountName}</span>;
       case 'department': return <span className="ell" title={p.Department || ''}>{p.Department}</span>;
       case 'region': return <input defaultValue={p.Region__c || ''} onBlur={(e) => e.target.value !== (p.Region__c || '') && patch(p.Id, { region: e.target.value || null })} />;
       case 'country': return <span className="ell">{p.MailingCountry}</span>;
@@ -61,7 +63,7 @@ export default function GridView() {
           <button className="btn ghost sm" onClick={() => setMenu(!menu)}>Columns ▾</button>
           {menu && <div className="pop" onMouseLeave={() => setMenu(false)}>
             <h4>Show columns</h4>
-            {COLS.map((c) => <label key={c.k}><input type="checkbox" checked={gridCols.includes(c.k)} onChange={() => setCols(gridCols.includes(c.k) ? gridCols.filter((x) => x !== c.k) : COLS.map((x) => x.k).filter((k) => k === c.k || gridCols.includes(k)))} /> {c.label}</label>)}
+            {COLS.filter((c) => c.k !== 'account').map((c) => <label key={c.k}><input type="checkbox" checked={gridCols.includes(c.k)} onChange={() => setCols(gridCols.includes(c.k) ? gridCols.filter((x) => x !== c.k) : COLS.map((x) => x.k).filter((k) => k === c.k || gridCols.includes(k)))} /> {c.label}</label>)}
             <button className="link" onClick={() => setCols(['title', 'reportsTo', 'role', 'es', 'vis'])}>Reset to compact</button>
           </div>}
         </div>

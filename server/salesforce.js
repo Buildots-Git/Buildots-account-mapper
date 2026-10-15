@@ -103,7 +103,12 @@ export async function loadAccount(id, extraFields = []) {
   const c = { query };
   const acc = (await c.query(`SELECT Id, Name, Type, Industry, Website, NumberOfEmployees, AnnualRevenue, Description, BillingCity, BillingState, BillingCountry, Owner.Name, Parent.Name, ParentId, Target_Account__c, Sales_Focus__c, Strategic_Account__c FROM Account WHERE Id='${esc(id)}'`)).records[0];
   if (!acc) throw new Error('Account not found');
-  const kidRecs = (await c.query(`SELECT Id, Target_Account__c, Sales_Focus__c FROM Account WHERE ParentId='${esc(id)}' LIMIT 200`)).records;
+  // The account plus every subsidiary beneath it (up to 4 levels), so a parent's board shows the whole family.
+  const kidRecs = [];
+  for (let level = [id], depth = 0; level.length && depth < 4; depth++) {
+    const next = (await c.query(`SELECT Id, Name, ParentId, Industry, Type, Website, BillingCountry, Target_Account__c, Sales_Focus__c FROM Account WHERE ParentId IN (${idList(level)}) ORDER BY Name LIMIT 500`)).records;
+    kidRecs.push(...next.filter((k) => k.Id !== id && !kidRecs.some((x) => x.Id === k.Id))); level = next.map((r) => r.Id);
+  }
   const kids = kidRecs.map((r) => r.Id);
   const flagged = new Set([acc, ...kidRecs].filter((a) => a.Target_Account__c || a.Sales_Focus__c).map((a) => a.Id));
   const ids = idList([id, ...kids]);
@@ -111,7 +116,8 @@ export async function loadAccount(id, extraFields = []) {
   // Only fields that exist in the describe are ever interpolated into SOQL.
   const allowed = new Set((await contactFields()).map((f) => f.name));
   const select = [...new Set([...BASE, ...extraFields.filter((f) => allowed.has(f))])].join(', ');
-  const contacts = (await c.query(`SELECT ${select}, Owner.Name FROM Contact WHERE AccountId IN (${ids}) ORDER BY Name LIMIT 2000`)).records;
+  const contacts = (await c.query(`SELECT ${select}, Owner.Name, Account.Name FROM Contact WHERE AccountId IN (${ids}) ORDER BY Name LIMIT 2000`)).records;
+  const truncated = contacts.length >= 2000;
 
   const [ocr, opps, pr, csr, leadsByAcct, csByAcct] = await Promise.all([
     c.query(`SELECT ContactId, Role, Opportunity.Id, Opportunity.Name, Opportunity.StageName, Opportunity.Amount, Opportunity.CloseDate
@@ -147,9 +153,13 @@ export async function loadAccount(id, extraFields = []) {
   return {
     account: { Id: acc.Id, Name: acc.Name, Industry: acc.Industry, BillingCountry: acc.BillingCountry, Target_Account__c: acc.Target_Account__c, Sales_Focus__c: acc.Sales_Focus__c,
       Type: acc.Type, Website: acc.Website, NumberOfEmployees: acc.NumberOfEmployees, AnnualRevenue: acc.AnnualRevenue, Description: acc.Description,
-      BillingCity: acc.BillingCity, BillingState: acc.BillingState, Owner: acc.Owner?.Name, Parent: acc.Parent?.Name, Strategic_Account__c: acc.Strategic_Account__c },
+      BillingCity: acc.BillingCity, BillingState: acc.BillingState, Owner: acc.Owner?.Name, Parent: acc.Parent?.Name, ParentId: acc.ParentId, Strategic_Account__c: acc.Strategic_Account__c },
     // Target marker = the contact's account is a Target Account or Sales Focus account. (Separate from ECM, the contact's own flag.)
-    contacts: strip(contacts).map((k) => ({ ...k, Account_Target: flagged.has(k.AccountId) })),
+    contacts: strip(contacts).map(({ Account, ...k }) => ({ ...k, AccountName: Account?.Name || null, Account_Target: flagged.has(k.AccountId) })),
+    // Related accounts: this one first, then its subsidiaries, each with how many people we loaded for it.
+    family: [acc, ...kidRecs].map((a) => ({ Id: a.Id, Name: a.Name, ParentId: a.Id === id ? null : a.ParentId, Industry: a.Industry, Type: a.Type, Website: a.Website, Target: !!a.Target_Account__c, SalesFocus: !!a.Sales_Focus__c,
+      people: contacts.filter((k) => k.AccountId === a.Id).length })),
+    truncated,
     opportunities: [...oppMap.values()],
     projectLeads: [...plMap.values()],
     csProjects: [...csMap.values()],
