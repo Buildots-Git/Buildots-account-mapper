@@ -237,3 +237,7 @@ main.tool-note .react-flow__pane,main.tool-text .react-flow__pane,main.tool-comm
 .ol-row:hover{background:rgba(120,130,150,.12)}.ol-row.sel{background:rgba(66,98,255,.16)}.ol-row.dim{opacity:.4}.ol-row.hit{background:rgba(232,163,23,.14)}
 .ol-tw{width:16px;background:none;border:0;color:inherit;cursor:pointer;padding:0}
 .logo{object-fit:contain;background:#fff;border-radius:10px;padding:4px}.tile-logo{box-shadow:0 1px 4px rgba(0,0,0,.25)}.hdr-logo{border-radius:5px;padding:1px;vertical-align:middle;margin-right:7px}
+.tile-top{height:104px;padding:0 14px 12px;align-items:flex-end}
+.tile-top .tile-ini{display:flex;align-items:flex-end;line-height:1}
+.tile-top .tile-logo{width:44px;height:44px;padding:3px;border-radius:9px;display:block}
+.tile-badges{left:14px;top:10px}
