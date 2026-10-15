@@ -117,15 +117,16 @@ function UsersModal({ onClose }) {
   return (
     <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal" style={{ width: 'min(760px,96vw)', height: 'auto', maxHeight: '88vh' }} role="dialog" aria-label="Users">
-        <header className="modal-h"><div><h3>Users</h3><div className="muted sm">New users must choose their own password the first time they sign in.</div></div><button className="x" onClick={onClose} aria-label="Close">×</button></header>
+        <header className="modal-h"><div><h3>Users</h3><div className="muted sm">New users start as board-only (can't write to Salesforce) and must choose their own password at first sign-in.</div></div><button className="x" onClick={onClose} aria-label="Close">×</button></header>
         <div className="modal-body" style={{ padding: '0 18px 12px' }}>
           {err && <div className="warn">{err}</div>}{note && <div className="ok">{note}</div>}
           <table className="rv" style={{ tableLayout: 'auto' }}>
-            <thead><tr><th>Username</th><th>Role</th><th>Last sign-in</th><th /></tr></thead>
+            <thead><tr><th>Username</th><th>Role</th><th title="May write board changes back to Salesforce. Admins always can.">Salesforce write</th><th>Last sign-in</th><th /></tr></thead>
             <tbody>{(list || []).map((u) => (
               <tr key={u.username}>
                 <td><b>{u.username}</b>{u.username === me.username && <span className="chip ok">you</span>}{u.mustChange && <span className="chip chk">temporary password</span>}</td>
                 <td><select value={u.role} disabled={u.username === me.username} onChange={(e) => run(() => api(`/users/${encodeURIComponent(u.username)}`, jsonOpts('PUT', { role: e.target.value })))}><option value="user">User</option><option value="admin">Admin</option></select></td>
+                <td><label className="row" style={{ gap: 6 }} title={u.role === 'admin' ? 'Admins can always write to Salesforce' : 'Allow this user to push changes to Salesforce'}><input type="checkbox" checked={u.canPush} disabled={u.role === 'admin'} onChange={(e) => run(() => api(`/users/${encodeURIComponent(u.username)}`, jsonOpts('PUT', { canPush: e.target.checked })))} />{u.role === 'admin' ? 'always' : u.canPush ? 'allowed' : 'board only'}</label></td>
                 <td className="muted sm">{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'never'}</td>
                 <td style={{ whiteSpace: 'nowrap' }}>
                   <button className="link" onClick={() => { const pw = suggest(); if (confirm(`Reset the password for ${u.username}? They will be signed out and must choose a new one.\n\nTemporary password:  ${pw}\n\nCopy it now — it is not shown again.`)) run(() => api(`/users/${encodeURIComponent(u.username)}`, jsonOpts('PUT', { password: pw })), `Password reset for ${u.username}. Give them: ${pw}`); }}>Reset password</button>

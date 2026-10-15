@@ -11,7 +11,7 @@ import ThemeToggle from './ThemeToggle.jsx';
 import { LoginScreen, SetupScreen, ForcedChangeScreen, UserMenu } from './AuthScreens.jsx';
 import ReviewModal from './ReviewModal.jsx';
 import CanvasToolbar from './CanvasToolbar.jsx';
-import { DetailPanel, EnrichPanel, FieldPicker, AccessPanel, AddPersonPanel, ReferencePanel, ReferenceOverlay, CommentsPanel, PeoplePanel, AccountPanel } from './Panels.jsx';
+import { DetailPanel, EnrichPanel, FieldPicker, AddPersonPanel, ReferencePanel, ReferenceOverlay, CommentsPanel, PeoplePanel, AccountPanel } from './Panels.jsx';
 
 function Loading({ name, full }) {
   const [sec, setSec] = useState(0);
@@ -108,8 +108,7 @@ export default function App() {
             <button className="item" onClick={() => { s.resetLayout(); setMenu(null); }}>Reset card positions</button>
             <button className="item" onClick={() => { setMenu(null); suggestColors(); }}>Color contacts from Salesforce…</button>
             <button className="item" onClick={() => { setMenu(null); { const all = s.people().filter((p) => p.cstatus).map((p) => p.Id); if (!all.length) { say('No cards are colored'); } else if (confirm(`Clear the Contact status color from ${all.length} card(s) on this board?\n\nBoard only — nothing in Salesforce changes. You can undo with ⌘Z.`)) { s.setStatus(all, null); say(`Cleared ${all.length} color(s) — Salesforce unchanged (⌘Z to undo)`); } } }}>Clear all colors (board only)</button>
-            <button className="item" disabled={!s.status.canWrite} title={s.status.canWrite ? '' : !s.status.switchOn ? 'Writes are switched off (ALLOW_WRITE=1)' : 'You don’t have permission to update Salesforce'} onClick={() => { setMenu(null); push(); }}>Push changes to Salesforce…</button>
-            {s.status.admin && <button className="item" onClick={() => setMenu('access')}>Manage write access…</button>}
+            <button className="item" disabled={!s.status.canWrite} title={s.status.canWrite ? '' : !s.status.switchOn ? 'Writes are switched off (ALLOW_WRITE=1)' : 'You don’t have permission to update Salesforce — ask an admin to turn it on under your profile menu → Users'} onClick={() => { setMenu(null); push(); }}>Push changes to Salesforce…</button>
           </div>}
         </div>
         <button className="btn ghost" title="Account details, research notes, opportunities and projects" onClick={() => setMenu(menu === 'account' ? null : 'account')}>Account info</button>
@@ -141,7 +140,7 @@ export default function App() {
       <main className={`${s.view !== 'board' ? 'grid-mode' : ''} tool-${s.tool}`}>
         {s.loading && <Loading name={s.loadingName} />}
         {s.view === 'board' ? <><Board /><CanvasToolbar /><Legend /><ReferenceOverlay /></> : s.view === 'outline' ? <OutlineView /> : <GridView />}
-        {menu === 'enrich' ? <EnrichPanel onClose={close} /> : menu === 'access' ? <AccessPanel onClose={close} /> : menu === 'fields' ? <FieldPicker onClose={close} />
+        {menu === 'enrich' ? <EnrichPanel onClose={close} /> : menu === 'fields' ? <FieldPicker onClose={close} />
           : menu === 'account' ? <AccountPanel onClose={close} /> : menu === 'people' ? <PeoplePanel onClose={close} /> : menu === 'comments' ? <CommentsPanel onClose={close} /> : menu === 'reference' ? <ReferencePanel onClose={close} /> : menu === 'add' ? <AddPersonPanel onClose={close} /> : <DetailPanel />}
       </main>
       <ReviewModal />

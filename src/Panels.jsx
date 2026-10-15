@@ -544,33 +544,6 @@ export function ReferenceOverlay() {
   );
 }
 
-export function AccessPanel({ onClose }) {
-  const [a, setA] = useState(null); const [err, setErr] = useState(null); const [name, setName] = useState('');
-  React.useEffect(() => { api('/access').then(setA).catch((e) => setErr(e.message)); }, []);
-  const save = async (next) => { try { setA({ ...a, ...(await api('/access', jsonOpts('PUT', next))) }); setErr(null); } catch (e) { setErr(e.message); } };
-  return (
-    <aside className="side wide">
-      <Head title="Salesforce write access" sub="Everyone can edit the board. Only admins and the people listed here can push changes to Salesforce." onClose={onClose} />
-      {err && <div className="warn">{err}</div>}
-      {a && <>
-        <h4>Admins (always can push)</h4>
-        {a.admins.map((e) => <div key={e} className="row"><span>{e}</span></div>)}
-        <div className="muted sm">Admins are managed under your name → Manage users.</div>
-        <h4>Also allowed to push</h4>
-        {a.writers.length ? a.writers.map((e) => <div key={e} className="row"><span>{e}</span><button className="x" onClick={() => save({ writers: a.writers.filter((x) => x !== e) })}>×</button></div>) : <div className="muted sm">Nobody else</div>}
-        <h4>Add a person</h4>
-        <input placeholder="their username" autoCapitalize="none" value={name} onChange={(e) => setName(e.target.value)} />
-        <button className="btn sm" disabled={!name.trim()} onClick={() => { save({ writers: [...a.writers, name] }); setName(''); }}>Allow to push</button>
-        <p className="muted sm">Every push is logged to data/audit.log with who, what and when.</p>
-      </>}
-    </aside>
-  );
-}
-
-// ---- account info ---------------------------------------------------------------------------------
-const fmtMoney = (n) => (n == null ? null : n >= 1e9 ? `$${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(0)}M` : `$${Math.round(n / 1e3)}k`);
-const fmtDate = (d) => (d ? new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '');
-
 export function AccountPanel({ onClose }) {
   const store = useStore(); const { account: a, data, accountNotes, setNotes } = store;
   const demo = String(a.Id).startsWith('demo');

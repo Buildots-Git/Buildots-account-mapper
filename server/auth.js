@@ -29,7 +29,7 @@ const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
 export const normUser = (u) => String(u || '').trim().toLowerCase();
 export const validUsername = (u) => /^[a-z0-9][a-z0-9._@+-]{2,63}$/.test(u);
 export const hasUsers = () => Object.keys(users()).length > 0;
-export const publicUser = (name, u) => ({ username: name, role: u.role, mustChange: !!u.mustChange, createdAt: u.createdAt, lastLoginAt: u.lastLoginAt || null });
+export const publicUser = (name, u) => ({ username: name, role: u.role, mustChange: !!u.mustChange, canPush: u.role === 'admin' || !!u.canPush, createdAt: u.createdAt, lastLoginAt: u.lastLoginAt || null });
 export const listUsers = () => Object.entries(users()).map(([n, u]) => publicUser(n, u)).sort((a, b) => a.username.localeCompare(b.username));
 
 // ---------------------------------------------------------------- passwords
@@ -86,7 +86,7 @@ export function authenticate(req, _res, next) {
     const s = sessions[sha(token)]; const now = Date.now();
     if (s && now - s.last <= IDLE_MS && now - s.created <= ABSOLUTE_MS) {
       const u = users()[s.username];
-      if (u) { req.user = { username: s.username, role: u.role, mustChange: !!u.mustChange, email: s.username }; req.sessionToken = token; if (now - s.last > 60_000) { s.last = now; saveSessions(); } }
+      if (u) { req.user = { username: s.username, role: u.role, mustChange: !!u.mustChange, canPush: !!u.canPush, email: s.username }; req.sessionToken = token; if (now - s.last > 60_000) { s.last = now; saveSessions(); } }
     }
   }
   next();
@@ -128,12 +128,12 @@ export async function checkLogin(req, usernameRaw, password) {
 
 // ---------------------------------------------------------------- user management
 const bad = (m) => Object.assign(new Error(m), { status: 400 });
-export async function createUser({ username, password, role = 'user', mustChange = false }) {
+export async function createUser({ username, password, role = 'user', mustChange = false, canPush = false }) {
   const name = normUser(username);
   if (!validUsername(name)) throw bad('Usernames are 3–64 characters: letters, numbers and . _ @ + -');
   const prob = passwordProblem(password, name); if (prob) throw bad(prob);
   const all = users(); if (all[name]) throw bad('That username is already taken.');
-  all[name] = { hash: await hashPassword(password), role: role === 'admin' ? 'admin' : 'user', mustChange, createdAt: new Date().toISOString() };
+  all[name] = { hash: await hashPassword(password), role: role === 'admin' ? 'admin' : 'user', mustChange, canPush: !!canPush && role !== 'admin', createdAt: new Date().toISOString() };
   saveUsers(all); return publicUser(name, all[name]);
 }
 export async function setPassword(username, password, { mustChange = false } = {}) {
@@ -145,6 +145,16 @@ export function setRole(username, role) {
   const name = normUser(username); const all = users(); if (!all[name]) throw bad('No such user.');
   if (all[name].role === 'admin' && role !== 'admin' && Object.values(all).filter((u) => u.role === 'admin').length < 2) throw bad('There must be at least one admin.');
   all[name].role = role === 'admin' ? 'admin' : 'user'; saveUsers(all);
+}
+export function setCanPush(username, on) {
+  const name = normUser(username); const all = users(); if (!all[name]) throw bad('No such user.');
+  all[name].canPush = !!on; saveUsers(all);
+}
+/** One-time move of the old access.json writer list onto the users themselves. */
+export function migrateWriters(writers = []) {
+  const all = users(); let n = 0;
+  for (const w of writers.map(normUser)) if (all[w] && !all[w].canPush) { all[w].canPush = true; n++; }
+  if (n) saveUsers(all); return n;
 }
 export function removeUser(username) {
   const name = normUser(username); const all = users(); if (!all[name]) throw bad('No such user.');

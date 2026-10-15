@@ -8,7 +8,7 @@ import { readOrgChart } from './vision.js';
 import { readChart } from './ocr.js';
 import * as sf from './salesforce.js';
 import { providers } from './enrich.js';
-import { permissions, loadAccess, saveAccess, audit, currentUser } from './access.js';
+import { permissions, legacyWriters, audit, currentUser } from './access.js';
 import { root, dataPath } from './paths.js';
 import * as auth from './auth.js';
 
@@ -71,15 +71,17 @@ app.post('/api/users', auth.requireAdmin, wrap(async (req, res) => {
   audit({ action: 'user-created', user: req.user.username, target: u.username, role: u.role }); res.json(auth.listUsers());
 }));
 app.put('/api/users/:name', auth.requireAdmin, wrap(async (req, res) => {
-  const { role, password } = req.body || {};
+  const { role, password, canPush } = req.body || {};
+  if (typeof canPush === 'boolean') auth.setCanPush(req.params.name, canPush);
   if (role) { if (req.params.name === req.user.username && role !== 'admin') return res.status(400).json({ error: 'You cannot remove your own admin role.' }); auth.setRole(req.params.name, role); }
   if (password) { await auth.setPassword(req.params.name, password, { mustChange: req.params.name !== req.user.username }); auth.endUserSessions(req.params.name); }
-  audit({ action: 'user-updated', user: req.user.username, target: req.params.name, role: role || undefined, passwordReset: !!password }); res.json(auth.listUsers());
+  audit({ action: 'user-updated', user: req.user.username, target: req.params.name, role: role || undefined, canPush, passwordReset: !!password }); res.json(auth.listUsers());
 }));
 app.delete('/api/users/:name', auth.requireAdmin, wrap(async (req, res) => {
   if (req.params.name === req.user.username) return res.status(400).json({ error: 'You cannot remove your own account.' });
   auth.removeUser(req.params.name); audit({ action: 'user-removed', user: req.user.username, target: req.params.name }); res.json(auth.listUsers());
 }));
+{ const n = auth.migrateWriters(legacyWriters()); if (n) console.log(`Moved ${n} Salesforce writer(s) onto the Users list`); }
 const boards = dataPath('boards');
 fs.mkdirSync(boards, { recursive: true });
 const boardFile = (id) => path.join(boards, `${id.replace(/[^\w-]/g, '')}.json`);
@@ -200,18 +202,6 @@ app.post('/api/push', wrap(async (req, res) => {
   const result = await sf.updateContacts(req.body.changes);
   audit({ user: perm.email, org: process.env.SF_ORG || 'prod', changes: req.body.changes, failed: result.filter((r) => !r.success).length });
   res.json(result);
-}));
-
-app.get('/api/access', (req, res) => {
-  if (!permissions(req).admin) return res.status(403).json({ error: 'Admins only' });
-  res.json({ ...loadAccess(), admins: auth.listUsers().filter((u) => u.role === 'admin').map((u) => u.username) });
-});
-app.put('/api/access', wrap(async (req, res) => {
-  const perm = permissions(req);
-  if (!perm.admin) return res.status(403).json({ error: 'Admins only' });
-  const next = saveAccess(req.body);
-  audit({ user: perm.email, action: 'access-changed', access: next });
-  res.json(next);
 }));
 
 const dist = path.join(root, '../dist');
