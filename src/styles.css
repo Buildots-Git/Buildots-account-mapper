@@ -212,3 +212,28 @@ main.tool-note .react-flow__pane,main.tool-text .react-flow__pane,main.tool-comm
 .textbox-bar{position:absolute;top:-36px;left:0;display:flex;gap:4px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:99px;padding:4px 8px;box-shadow:0 3px 10px rgba(0,0,0,.25)}.textbox-bar .del{background:none;border:0;cursor:pointer}
 .note textarea{font-size:15px}
 .side>*{flex-shrink:0}
+.banner.conflict{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+.target-badge{font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;background:rgba(232,163,23,.16);color:#e8a317;border:1px solid rgba(232,163,23,.4);white-space:nowrap}
+
+.cnode{position:relative}
+.cnode .fold{position:absolute;left:50%;bottom:-12px;transform:translateX(-50%);z-index:3;min-width:22px;height:22px;padding:0 7px;border-radius:999px;border:1px solid var(--line,#cbd2dc);background:var(--panel,#fff);color:inherit;font-size:11px;font-weight:700;cursor:pointer;line-height:1}
+.cnode .fold.on{background:#4262ff;color:#fff;border-color:#4262ff}
+.cnode .fold:hover{filter:brightness(1.1)}
+.searchbar{flex-wrap:wrap}
+.searchbar .sb-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;width:100%}
+.searchbar select.flt{max-width:170px}
+.searchbar select.flt.on{border-color:#4262ff;box-shadow:0 0 0 1px #4262ff}
+.searchbar .sb-fold{margin-left:auto;display:flex;gap:10px}
+.searchbar .chip{border:1px solid var(--line,#cbd2dc);background:transparent;color:inherit;border-radius:999px;padding:2px 10px;font-size:12px;cursor:pointer}
+.searchbar .chip:hover{border-color:#4262ff}
+.searchbar .chip.warn{border-color:#e8a317;color:#e8a317}
+.board-only{font-size:11px;color:var(--muted,#8a93a3);white-space:nowrap;border:1px dashed var(--line,#cbd2dc);border-radius:999px;padding:2px 8px}
+.grid input.needs-review{border-color:#e8a317;background:rgba(232,163,23,.1)}
+
+.outline{display:flex;flex-direction:column;height:100%;min-height:0}
+.ol-scroll{overflow:auto;flex:1;padding:6px 0}
+.ol-row{display:flex;align-items:center;gap:6px;padding:4px 12px;cursor:pointer;white-space:nowrap;font-size:13px}
+.ol-row:hover{background:rgba(120,130,150,.12)}.ol-row.sel{background:rgba(66,98,255,.16)}.ol-row.dim{opacity:.4}.ol-row.hit{background:rgba(232,163,23,.14)}
+.ol-tw{width:16px;background:none;border:0;color:inherit;cursor:pointer;padding:0}
+.logo{object-fit:contain;background:#fff;border-radius:10px;padding:4px}.tile-logo{box-shadow:0 1px 4px rgba(0,0,0,.25)}.hdr-logo{border-radius:5px;padding:1px;vertical-align:middle;margin-right:7px}

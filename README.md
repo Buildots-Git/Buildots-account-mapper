@@ -53,6 +53,27 @@ Edits live on the board; nothing is written to Salesforce unless an allowed user
   login's permissions. Per-user Salesforce sign-in is the planned fix.
 - Run the sign-in tests after touching `server/auth.js` or the route protection.
 
+## Letting other people use your running copy
+
+For a test with colleagues, run **one** server on your machine and put a secure tunnel in front of it.
+
+```bash
+npm run serve                 # builds the app and serves everything on http://localhost:8787
+cloudflared tunnel --url http://localhost:8787     # prints a https://….trycloudflare.com address (brew install cloudflared)
+```
+
+(Tailscale Funnel or ngrok work the same way.) Then: open the app on that https address, sign in, **Manage users…** → add each
+tester and send them their temporary password privately; they choose their own on first sign-in. Stop the tunnel when you are done and
+remove the test users.
+
+- Keep `ALLOW_WRITE` unset: nothing can be pushed to Salesforce. Everyone sees what *your* `sf` login can see.
+- Boards, comments and notes are shared and stored on your machine under `data/`. Your computer must stay awake and online.
+- If two people save the same board, the second gets a banner (*Load their version* / *Keep mine*) instead of silently overwriting.
+- Failed sign-ins are counted per visitor, using the address the tunnel forwards. Check `data/audit.log` afterwards.
+- Do not use `HOST=0.0.0.0` on an office network: sign-in would travel unencrypted.
+
+`npm test` runs the sign-in and multi-user checks (`scripts/auth-test.mjs`, `scripts/share-test.mjs`).
+
 ## Known gaps / ideas (see BAO-1243)
 
 - Multi-user hosting: shared board storage, HTTPS, per-user Salesforce OAuth, Google sign-in for @buildots.com.

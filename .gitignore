@@ -8,3 +8,6 @@ data/*
 !data/.gitkeep
 *.log
 .DS_Store
+
+# local helper binaries
+tools/

@@ -44,8 +44,8 @@ app.post('/api/auth/setup', wrap(async (req, res) => { // creates the FIRST acco
 app.post('/api/auth/login', wrap(async (req, res) => {
   const { username, password } = req.body || {};
   const r = await auth.checkLogin(req, username, password);
-  if (r.locked) { audit({ action: 'auth-locked', user: auth.normUser(username), ip: req.socket.remoteAddress }); return res.status(429).json({ error: `Too many attempts. Try again in ${Math.ceil(r.locked / 60)} minute${r.locked > 90 ? 's' : ''}.` }); }
-  if (r.error) { audit({ action: 'auth-failed', user: auth.normUser(username), ip: req.socket.remoteAddress }); return res.status(401).json({ error: r.error }); }
+  if (r.locked) { audit({ action: 'auth-locked', user: auth.normUser(username), ip: auth.clientIp(req) }); return res.status(429).json({ error: `Too many attempts. Try again in ${Math.ceil(r.locked / 60)} minute${r.locked > 90 ? 's' : ''}.` }); }
+  if (r.error) { audit({ action: 'auth-failed', user: auth.normUser(username), ip: auth.clientIp(req) }); return res.status(401).json({ error: r.error }); }
   audit({ action: 'auth-login', user: r.username });
   auth.setCookie(req, res, auth.createSession(r.username)); res.json({ user: me({ username: r.username, ...r.user }) });
 }));
@@ -108,9 +108,10 @@ app.get('/api/accounts/:id', wrap(async (req, res) => {
 
 app.get('/api/contact-fields', wrap(async (_req, res) => res.json(useDemo() ? demoFields : await sf.contactFields())));
 
-app.get('/api/boards/:id', (req, res) => {
-  try { res.json(JSON.parse(fs.readFileSync(boardFile(req.params.id), 'utf8'))); } catch { res.json(null); }
-});
+// Boards carry a revision number. A save based on an older revision means somebody else saved in between: refuse it (409)
+// instead of silently overwriting their work.
+const readBoard = (id) => { try { return JSON.parse(fs.readFileSync(boardFile(id), 'utf8')); } catch { return null; } };
+app.get('/api/boards/:id', (req, res) => res.json(readBoard(req.params.id)));
 // ---- recent boards (the homepage tiles) ----
 const recentFile = dataPath('recent.json');
 const readRecent = () => { try { return JSON.parse(fs.readFileSync(recentFile, 'utf8')); } catch { return {}; } };
@@ -118,7 +119,10 @@ const writeRecent = (r) => fs.writeFileSync(recentFile, JSON.stringify(r));
 const sumLen = (o) => Object.values(o || {}).reduce((a, v) => a + (Array.isArray(v) ? v.length : 0), 0);
 
 app.put('/api/boards/:id', (req, res) => {
-  const id = req.params.id; const b = req.body || {};
+  const id = req.params.id; const { baseRev, force, ...b } = req.body || {};
+  const cur = readBoard(id); const curRev = cur?._rev || 0;
+  if (!force && baseRev !== undefined && baseRev !== curRev) return res.status(409).json({ error: 'This board was changed by someone else.', code: 'conflict', rev: curRev, by: cur?._by || null, at: cur?._at || null });
+  b._rev = curRev + 1; b._by = currentUser(req); b._at = new Date().toISOString();
   fs.writeFileSync(boardFile(id), JSON.stringify(b));
   if (b.meta?.name) { // keep the homepage tile's numbers in step with the board
     const r = readRecent(); const prev = r[id] || {};
@@ -126,7 +130,7 @@ app.put('/api/boards/:id', (req, res) => {
       stats: { edits: Object.keys(b.overrides || {}).length, added: (b.extras || []).length, comments: sumLen(b.comments) + (b.items || []).filter((i) => i.type === 'comment').length, notes: (b.items || []).filter((i) => i.type !== 'comment').length, reference: !!(b.reference?.dataUrl || b.reference?.embedUrl), research: !!b.accountNotes } };
     writeRecent(r);
   }
-  res.json({ ok: true });
+  res.json({ ok: true, rev: b._rev });
 });
 app.post('/api/recent/:id/open', (req, res) => {
   const r = readRecent(); const id = req.params.id;
@@ -143,7 +147,7 @@ async function backfillRecent() {
     for (const a of await sf.accountsByIds(missing)) {
       const f = boardFile(a.Id); let b = {}; try { b = JSON.parse(fs.readFileSync(f, 'utf8')); } catch {}
       const t = fs.statSync(f).mtime.toISOString();
-      r[a.Id] = { id: a.Id, name: a.Name, industry: a.Industry, country: a.BillingCountry, type: a.Type, target: !!a.Target_Account__c, salesFocus: !!a.Sales_Focus__c, openedAt: t, updatedAt: t, stats: boardStats(b) };
+      r[a.Id] = { id: a.Id, name: a.Name, industry: a.Industry, country: a.BillingCountry, type: a.Type, website: a.Website || null, target: !!a.Target_Account__c, salesFocus: !!a.Sales_Focus__c, openedAt: t, updatedAt: t, stats: boardStats(b) };
     }
     writeRecent(r);
   } catch { /* Salesforce unavailable: the tiles simply appear once it is */ }
@@ -214,6 +218,7 @@ const dist = path.join(root, '../dist');
 if (fs.existsSync(dist)) { app.use(express.static(dist)); app.use((_q, r) => r.sendFile(path.join(dist, 'index.html'))); }
 const HOST = process.env.HOST || '127.0.0.1', PORT = +(process.env.PORT || 8787);
 app.listen(PORT, HOST, () => {
+  if (process.env.DEMO !== '1') setTimeout(() => sf.warmAccountIndex(), 1500); // account names for instant search
   console.log(`API on http://${HOST === '127.0.0.1' ? 'localhost' : HOST}:${PORT}`);
   if (!auth.hasUsers()) console.log(`No accounts yet — open the app and create the first one.${HOST !== '127.0.0.1' ? ` Setup code (needed from other machines): ${auth.setupCode}` : ''}`);
   if (HOST !== '127.0.0.1') console.log('Listening beyond this computer: put the app behind HTTPS before real use.');

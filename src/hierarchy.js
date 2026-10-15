@@ -1,16 +1,30 @@
 // Title -> seniority rank (0 = top). Order matters: first match wins.
 const RULES = [
-  [0, /\b(ceo|chief executive|chairman|chairwoman|owner|founder|managing partner)\b|^president\b|\bpresident (&|and) (ceo|coo)/i],
-  [1, /\b(coo|cfo|cto|cio|cmo|cpo|chief|general counsel|evp|executive vice president)\b/i],
-  [2, /\b(region(al)?|division|divisional|market|business unit|district|office)\b.*\b(president|head|lead(er)?|manager|mngr|vp|vice president|director)\b|\b(president)\b/i],
+  [0, /\b(ceo|chief executive|chairman|chairwoman|owner|founder|co-?founder|managing partner|co-?founding partner)\b|^president\b|\bpresident (&|and) (ceo|coo)/i],
+  [1, /\b(coo|cfo|cto|cio|cmo|cpo|chief|general counsel|evp|executive vice president|partner|principal)\b/i],
+  [2, /\b(region(al)?|division|divisional|market|business unit|district|office)\b.*\b(president|head|lead(er)?|manager|mngr|vp|vice president|director)\b|(?<!vice )\bpresident\b/i],
   [2, /\bsvp\b|senior vice president|office leader/i],
-  [3, /\bvp\b|vice president|\bhead of\b|director|\bdir\b\.?|\bproj(ect)?\.? dir\b/i],
+  [3, /\bvp\b|vice president|\bhead of\b|director|\bdir\b\.?|\bproj(ect)?\.? dir\b|controller|\bleader\b/i],
   [3, /\b(operations|ops) (manager|mngr)\b|\bmanager,? (of )?operations\b/i],
-  [4, /project executive|senior project manager|\bsr\.? (project manager|pm|manager)\b|senior manager|general manager|construction manager/i],
+  [4, /project executive|senior project manager|\bsr\.? (project manager|pm|manager)\b|senior manager|general manager|construction manager|\bsupervisor\b/i],
   [5, /project manager|\bpm\b|manager|mngr|superintendent|lead\b/i],
   [6, /./],
 ];
-export const rankOf = (title) => (RULES.find(([, re]) => re.test(title ?? '')) || [6])[0];
+// Titles often arrive glued ("VicePresidentof Operations") or abbreviated; normalise before matching.
+export const normTitle = (t) => String(t ?? '')
+  .replace(/([a-z])([A-Z])/g, '$1 $2')
+  .replace(/\bvice ?president ?of\b/gi, 'vice president of')
+  .replace(/\b(vice ?president)(?=[a-z])/gi, 'vice president ')
+  .replace(/\bsr\b\.?/gi, 'senior').replace(/\bmgr\b\.?/gi, 'manager').replace(/\bexec\b\.?/gi, 'executive')
+  .replace(/\s+/g, ' ').trim();
+export const rankOf = (title) => (RULES.find(([, re]) => re.test(normTitle(title))) || [6])[0];
+// Flag titles that sound senior but fell to the bottom (or arrive as one glued word): likely misread, worth a look.
+const SENIORISH = /\b(vp|president|chief|head|director|manager|mngr|lead(er)?|partner|principal|officer|controller|supervisor|owner|founder|chair\w*)\b/i;
+export const titleRecognized = (title) => {
+  const t = normTitle(title); if (!t) return true;
+  const fell = RULES.findIndex(([, re]) => re.test(t)) === RULES.length - 1;
+  return !(fell && (SENIORISH.test(t) || /^\S{16,}$/.test(String(title).trim())));
+};
 
 const REGION_RE = /\b(west|east|central|north|south|northeast|southeast|northwest|southwest|midwest|emea|apac|uk|europe)\b/i;
 export const regionOf = (c) => c.Region__c || (c.Title || '').match(REGION_RE)?.[1]?.replace(/^./, (x) => x.toUpperCase()) || null;

@@ -9,7 +9,7 @@ export const api = (p, o = {}) => fetch(`/api${p}`, { ...o, headers: { ...CSRF, 
   return j;
 });
 export const jsonOpts = (method, body) => ({ method, headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'account-mapper' }, body: JSON.stringify(body) });
-let saveTimer, fieldTimer, pending = false;
+let saveTimer, fieldTimer, pending = false, saving = false, again = false, searchSeq = 0;
 export const hasPendingSave = () => pending;
 
 // Theme: 'system' follows the OS; 'light' / 'dark' are explicit. Remembered per browser.
@@ -36,12 +36,12 @@ const DEFAULT_REF = { dataUrl: null, embedUrl: null, name: null, opacity: 0.9, v
 
 export const useStore = create((set, get) => ({
   theme: readTheme(), _sys: 0,
-  auth: { checked: false, setupNeeded: false, setupCodeRequired: false, user: null, notice: null }, loadingName: null, review: null, cardLayout: DEFAULT_LAYOUT, noteStyle: readNoteStyle(), items: [], tool: 'select', openPin: null, freshItem: null, recent: [], status: null, accounts: [], account: null, data: null, loading: false, error: null, fieldCatalog: [],
+  auth: { checked: false, setupNeeded: false, setupCodeRequired: false, user: null, notice: null }, loadingName: null, boardRev: 0, conflict: null, review: null, cardLayout: DEFAULT_LAYOUT, noteStyle: readNoteStyle(), items: [], tool: 'select', openPin: null, freshItem: null, recent: [], status: null, accounts: [], account: null, data: null, loading: false, error: null, fieldCatalog: [],
   // board state, persisted per account
   overrides: {}, // contactId -> { reportsTo, manual, region, role, es, enterprise, title, hidden, fields }
   positions: {}, extras: [], reference: DEFAULT_REF, accountNotes: '', toast: null, comments: {}, // comments: personId | '__board' -> [{ id, author, at, text }]
   showFields: ['Title'], showRelated: { opps: true, leads: true, cs: true }, hideUntitled: true, highlight: { role: true, es: true, ecm: true },
-  view: 'board', psearch: { field: 'any', q: '', only: false }, gridCols: ['title', 'reportsTo', 'role', 'es', 'vis'], selected: null, past: [], future: [], enrichTarget: null, focusId: null,
+  view: 'board', psearch: { field: 'any', q: '', only: true, filters: { role: '', es: '', ecm: '', department: '', region: '', country: '', review: '' } }, collapsed: {}, collapseAll: null, outline: false, gridCols: ['title', 'reportsTo', 'role', 'es', 'vis'], selected: null, past: [], future: [], enrichTarget: null, focusId: null,
 
   setTheme(t) {
     try { localStorage.setItem('am-theme', t); } catch { /* private mode etc. - still applies for this session */ }
@@ -63,7 +63,10 @@ export const useStore = create((set, get) => ({
 
   async init() { set({ status: await api('/status') }); await get().search(''); },
   async refreshStatus() { set({ status: await api('/status') }); },
-  async search(q) { set({ accounts: await api(`/accounts?q=${encodeURIComponent(q)}`) }); },
+  async search(q) {
+    const n = ++searchSeq; // a slow answer to an older search must not overwrite the newer one
+    try { const r = await api(`/accounts?q=${encodeURIComponent(q)}`); if (n === searchSeq) set({ accounts: r }); } catch { /* keep the last results */ }
+  },
 
   async fetchData(id, fields) {
     const extra = fields.filter((f) => f !== 'Title').join(',');
@@ -71,20 +74,20 @@ export const useStore = create((set, get) => ({
   },
 
   async open(id, name) {
-    set({ loading: true, loadingName: name || null, error: null, selected: null, past: [], future: [] });
+    set({ loading: true, loadingName: name || null, error: null, selected: null, past: [], future: [], collapsed: {}, collapseAll: null, psearch: { field: 'any', q: '', only: true, filters: { role: '', es: '', ecm: '', department: '', region: '', country: '', review: '' } } });
     try {
       const board = await api(`/boards/${id}`);
       const dflt = board?.cardLayout ? null : readCardDefault(); // a board never customised starts from the user's saved default
       const showFields = board?.showFields || dflt?.fields || ['Title'];
       const [data, fieldCatalog] = await Promise.all([get().fetchData(id, showFields), api('/contact-fields').catch(() => [])]);
       if (!Array.isArray(fieldCatalog)) throw new Error('The API server is out of date — stop and restart npm run dev');
-      set({ account: data.account, data, fieldCatalog, loading: false, cardLayout: { ...DEFAULT_LAYOUT, ...(board?.cardLayout || dflt?.layout || {}) },
+      set({ account: data.account, data, fieldCatalog, loading: false, boardRev: board?._rev || 0, conflict: null, cardLayout: { ...DEFAULT_LAYOUT, ...(board?.cardLayout || dflt?.layout || {}) },
         overrides: board?.overrides || {}, positions: board?.positions || {}, extras: board?.extras || [], comments: board?.comments || {}, items: board?.items || [], tool: 'select', accountNotes: board?.accountNotes || '',
         reference: { ...DEFAULT_REF, ...(board?.reference || {}) }, showFields,
         showRelated: board?.showRelated || dflt?.rel || DEFAULT_REL, hideUntitled: board?.hideUntitled ?? true, highlight: { ...DEFAULT_HL, ...(board?.highlight || dflt?.hl || {}) }, gridCols: board?.gridCols || ['title', 'reportsTo', 'role', 'es', 'vis'] });
       // the homepage's "recent boards" tile
       const a = data.account;
-      api(`/recent/${id}/open`, jsonOpts('POST', { name: a.Name, industry: a.Industry, country: a.BillingCountry, type: a.Type, target: !!a.Target_Account__c, salesFocus: !!a.Sales_Focus__c, contacts: data.contacts.length })).catch(() => {});
+      api(`/recent/${id}/open`, jsonOpts('POST', { name: a.Name, industry: a.Industry, country: a.BillingCountry, type: a.Type, website: a.Website || null, target: !!a.Target_Account__c, salesFocus: !!a.Sales_Focus__c, contacts: data.contacts.length })).catch(() => {});
     } catch (e) { set({ loading: false, error: e.message }); }
   },
   async loadRecent() { try { set({ recent: await api('/recent') }); } catch { /* the homepage works without it */ } },
@@ -95,12 +98,27 @@ export const useStore = create((set, get) => ({
     saveTimer = setTimeout(() => get().flushNow(), 400);
   },
   /** Save right now (also used when the page is closing, so a reload can't swallow a pending change). */
-  flushNow(keepalive = false) {
+  flushNow(keepalive = false, force = false) {
     clearTimeout(saveTimer); pending = false;
-    const { account, data, overrides, positions, extras, showFields, showRelated, hideUntitled, reference, comments, gridCols, accountNotes, highlight, items, cardLayout } = get();
-    const meta = account && data ? { name: account.Name, industry: account.Industry, country: account.BillingCountry, type: account.Type, target: !!account.Target_Account__c, salesFocus: !!account.Sales_Focus__c, contacts: data.contacts.length } : undefined;
-    if (account) fetch(`/api/boards/${account.Id}`, { ...jsonOpts('PUT', { overrides, positions, extras, showFields, showRelated, hideUntitled, reference, comments, gridCols, accountNotes, highlight, items, cardLayout, meta }), keepalive: keepalive && JSON.stringify({ reference }).length < 60000 });
+    const { account, data, overrides, positions, extras, showFields, showRelated, hideUntitled, reference, comments, gridCols, accountNotes, highlight, items, cardLayout, boardRev, conflict } = get();
+    if (!account || (conflict && !force)) return; // somebody else changed this board: hold our save until the user chooses
+    if (saving) { again = true; return; }          // one save at a time, so a quick second edit can't look like a conflict with the first
+    const meta = data ? { name: account.Name, industry: account.Industry, country: account.BillingCountry, type: account.Type, target: !!account.Target_Account__c, salesFocus: !!account.Sales_Focus__c, contacts: data.contacts.length } : undefined;
+    const body = { overrides, positions, extras, showFields, showRelated, hideUntitled, reference, comments, gridCols, accountNotes, highlight, items, cardLayout, meta, baseRev: boardRev, ...(force ? { force: true } : {}) };
+    saving = true;
+    fetch(`/api/boards/${account.Id}`, { ...jsonOpts('PUT', body), keepalive: keepalive && JSON.stringify({ reference }).length < 60000 })
+      .then(async (r) => {
+        const j = await r.json().catch(() => null);
+        if (r.status === 409 && j?.code === 'conflict') set({ conflict: { by: j.by, at: j.at, rev: j.rev } });
+        else if (r.status === 401) get().sessionExpired();
+        else if (r.ok && j?.rev) set({ boardRev: j.rev });
+      })
+      .catch(() => {})
+      .finally(() => { saving = false; if (again) { again = false; get().flushNow(); } });
   },
+  /** Somebody else saved this board first. Take their version (losing our unsaved edits), or keep ours and overwrite theirs. */
+  async reloadBoard() { const a = get().account; if (!a) return; set({ conflict: null }); await get().open(a.Id, a.Name); },
+  keepMine() { const c = get().conflict; set({ conflict: null, boardRev: c?.rev ?? get().boardRev }); get().flushNow(false, true); },
 
   // ---- card appearance ----
   setLayout(patch) { set((s) => ({ cardLayout: { ...s.cardLayout, ...patch } })); get().persist(); },
@@ -207,6 +225,11 @@ export const useStore = create((set, get) => ({
     set((s) => ({ items: s.items.map((i) => (i.id === id ? { ...i, thread: [...(i.thread || []), c] } : i)) })); get().persist();
   },
   setSearch(patch) { set((s) => ({ psearch: { ...s.psearch, ...patch } })); },
+  setFilter(k, v) { set((s) => ({ psearch: { ...s.psearch, filters: { ...s.psearch.filters, [k]: v } } })); },
+  clearFilters() { set((s) => ({ psearch: { ...s.psearch, q: '', filters: { role: '', es: '', ecm: '', department: '', region: '', country: '', review: '' } } })); },
+  // Branches: collapsed[id] true/false overrides the default (everything below the top levels starts folded).
+  toggleBranch(id, now) { set((s) => ({ collapsed: { ...s.collapsed, [id]: !now } })); },
+  setAllBranches(mode) { set({ collapsed: {}, collapseAll: mode }); },
   /** Show or hide several people at once (one undo step). Showing also re-adds untitled people the filter would drop. */
   setVisible(ids, visible) {
     get().snapshot();
@@ -267,9 +290,9 @@ export const useStore = create((set, get) => ({
     });
   },
 
-  async push() {
+  pendingChanges() {
     const { overrides, data } = get();
-    const changes = Object.entries(overrides).filter(([id]) => data.contacts.some((c) => c.Id === id)).map(([Id, o]) => {
+    return Object.entries(overrides).filter(([id]) => data.contacts.some((c) => c.Id === id)).map(([Id, o]) => {
       const f = { Id };
       if ('reportsTo' in o && o.manual) f.ReportsToId = o.reportsTo;
       if (o.region !== undefined) f.Region__c = o.region;
@@ -277,6 +300,9 @@ export const useStore = create((set, get) => ({
       if (o.es !== undefined) f.ES_Expansion_Status__c = o.es;
       return f;
     }).filter((f) => Object.keys(f).length > 1);
+  },
+  async push() {
+    const changes = get().pendingChanges();
     if (!changes.length) return { n: 0 };
     const res = await api('/push', jsonOpts('POST', { changes }));
     return { n: changes.length, failed: res.filter((r) => !r.success).length };

@@ -4,7 +4,7 @@ import ContactNode from './ContactNode.jsx';
 import { NoteNode, TextNode, PinNode } from './ItemNodes.jsx';
 import { useStore, effectiveTheme } from './store.js';
 import { regionOf, regionColor } from './hierarchy.js';
-import { matchesSearch, onBoard } from './search.js';
+import { matchesSearch, onBoard, filtersActive } from './search.js';
 
 const W = 220, H = 120;
 
@@ -64,15 +64,22 @@ function LinkEdge({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPo
 const edgeTypes = { link: LinkEdge };
 
 export function useGraph() {
-  const { data, extras, overrides, positions, showFields, showRelated, hideUntitled, fieldCatalog, comments, psearch: search, highlight, items, freshItem, cardLayout } = useStore();
+  const { data, extras, overrides, positions, showFields, showRelated, hideUntitled, fieldCatalog, comments, psearch: search, highlight, items, freshItem, cardLayout, collapsed, collapseAll } = useStore();
   const labels = useMemo(() => Object.fromEntries(fieldCatalog.map((f) => [f.name, f.label])), [fieldCatalog]);
   return useMemo(() => {
     const everyone = useStore.getState().people();
-    const searching = !!search.q.trim();
+    const searching = filtersActive(search);
     const hit = (p) => matchesSearch(p, search);
-    const people = everyone.filter((p) => onBoard(p, hideUntitled) && !(searching && search.only && !hit(p)));
-    const ids = new Set(people.map((p) => p.Id));
-    const byId = Object.fromEntries(people.map((p) => [p.Id, p]));
+    // With "only show matches" the matching people stay, plus the managers above them so you still see where they sit.
+    const onB = everyone.filter((p) => onBoard(p, hideUntitled));
+    let keep = null;
+    if (searching && search.only) {
+      keep = new Set(); const by0 = Object.fromEntries(onB.map((p) => [p.Id, p]));
+      onB.forEach((p) => { if (!hit(p)) return; let c = p.Id, n = 0; while (c && !keep.has(c) && by0[c] && n++ < 60) { keep.add(c); c = by0[c].reportsTo; } });
+    }
+    const shownAll = onB.filter((p) => !keep || keep.has(p.Id));
+    const ids = new Set(shownAll.map((p) => p.Id));
+    const byId = Object.fromEntries(shownAll.map((p) => [p.Id, p]));
     const allById = Object.fromEntries(everyone.map((p) => [p.Id, p]));
     // Hiding someone doesn't break the tree: their reports attach to the nearest manager still on the board.
     const parentOf = (p) => {
@@ -88,6 +95,29 @@ export function useGraph() {
       const own = regionOf(p); const par = parentOf(p);
       return (regionCache[p.Id] = own || (par ? region(byId[par]) : null));
     };
+    // Branches fold away: below the top levels by default (big boards only), or as the user chose. A search/filter shows everything.
+    const kids = {};
+    shownAll.forEach((p) => { const par = parentOf(p); if (par) (kids[par] ||= []).push(p.Id); });
+    const depthC = {};
+    const depthOf = (id, n = 0) => (id in depthC ? depthC[id] : (depthC[id] = (() => { const par = byId[id] && parentOf(byId[id]); return par && n < 40 ? 1 + depthOf(par, n + 1) : 0; })()));
+    const descC = {};
+    const desc = (id) => (id in descC ? descC[id] : (descC[id] = (kids[id] || []).reduce((a, k) => a + 1 + desc(k), 0)));
+    // Default view: reveal levels top-down only while the board stays small enough to read at a glance (~30 cards).
+    let foldDepth = 99;
+    if (shownAll.length > 40) {
+      const byDepth = {}; shownAll.forEach((p) => { const d = depthOf(p.Id); byDepth[d] = (byDepth[d] || 0) + 1; });
+      let total = 0; foldDepth = 0;
+      for (let d = 0; byDepth[d]; d++) { total += byDepth[d]; if (total > 30 && d > 0) break; foldDepth = d; }
+    }
+    const isFolded = (id) => {
+      if (searching || !kids[id]) return false;
+      if (id in collapsed) return collapsed[id];
+      if (collapseAll === 'expand') return false;
+      if (collapseAll === 'collapse') return true;
+      return depthOf(id) >= foldDepth;
+    };
+    const hiddenByFold = (p) => { let cur = parentOf(p); let n = 0; while (cur && n++ < 60) { if (isFolded(cur)) return true; cur = parentOf(byId[cur]); } return false; };
+    const people = shownAll.filter((p) => !hiddenByFold(p));
     const regions = [...new Set(people.map(region).filter(Boolean))];
     const counts = (id) => ({
       opps: showRelated.opps ? data.opportunities.filter((o) => o.contactIds.includes(id)).length : 0,
@@ -104,7 +134,7 @@ export function useGraph() {
       const par = parentOf(p); const r = region(p); const pr = par ? region(byId[par]) : null;
       const { x, y } = positions[p.Id] || auto[p.Id];
       return { id: p.Id, type: 'contact', deletable: false, position: { x, y },
-        data: { hl: highlight, layout: cardLayout, acc: data.account.Id, labels, p, color: regionColor(r, regions), showFields, counts: { ...counts(p.Id), notes: (comments[p.Id] || []).length }, notesList: comments[p.Id] || [], branchLabel: r && r !== pr ? r.toUpperCase() : null, dim: searching && !hit(p), hit: searching && hit(p) } };
+        data: { branch: kids[p.Id] ? { n: desc(p.Id), folded: isFolded(p.Id) } : null, hl: highlight, layout: cardLayout, acc: data.account.Id, labels, p, color: regionColor(r, regions), showFields, counts: { ...counts(p.Id), notes: (comments[p.Id] || []).length }, notesList: comments[p.Id] || [], branchLabel: r && r !== pr ? r.toUpperCase() : null, dim: searching && !hit(p), hit: searching && hit(p) } };
     });
     const edges = people.filter(parentOf).map((p) => ({
       id: `e-${parentOf(p)}-${p.Id}`, source: parentOf(p), target: p.Id, type: 'link',
@@ -116,7 +146,7 @@ export function useGraph() {
       data: { item: it, fresh: freshItem === it.id },
     }));
     return { nodes: [...nodes, ...itemNodes], edges, people };
-  }, [data, extras, overrides, positions, showFields, showRelated, hideUntitled, labels, comments, search, highlight, items, freshItem, cardLayout]);
+  }, [data, extras, overrides, positions, showFields, showRelated, hideUntitled, labels, comments, search, highlight, items, freshItem, cardLayout, collapsed, collapseAll]);
 }
 
 function Inner() {
@@ -202,6 +232,19 @@ function Inner() {
     const st = useStore.getState(); st.setVisible([id], true); st.setPositions({ [id]: { x: pos.x - cardW / 2, y: pos.y - 40 } }); st.select(id);
   }, [screenToFlowPosition, cardW]);
 
+  // Fit everything in view: double-click empty canvas, press F, or use the Fit view button. Panning is limited so nobody can get lost.
+  const fitAll = useCallback(() => fitView({ padding: 0.15, duration: 400, maxZoom: 1, minZoom: 0.25 }), [fitView]);
+  React.useEffect(() => {
+    useStore.setState({ fitAll });
+    const key = (e) => { if ((e.key === 'f' || e.key === 'F') && !e.metaKey && !e.ctrlKey && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '') && !document.activeElement?.isContentEditable) fitAll(); };
+    window.addEventListener('keydown', key);
+    return () => { window.removeEventListener('keydown', key); useStore.setState({ fitAll: null }); };
+  }, [fitAll]);
+  const extent = React.useMemo(() => {
+    if (!nodes.length) return undefined;
+    const xs = nodes.map((n) => n.position.x), ys = nodes.map((n) => n.position.y), m = 1200;
+    return [[Math.min(...xs) - m, Math.min(...ys) - m], [Math.max(...xs) + cardW + m, Math.max(...ys) + 400 + m]];
+  }, [nodes, cardW]);
   const [hover, setHover] = React.useState(null);
   const [hoverNode, setHoverNode] = React.useState(null);
   const edgesWithUi = React.useMemo(() => edges.map((e) => ({
@@ -220,7 +263,7 @@ function Inner() {
       onConnect={onConnect} onEdgesDelete={onEdgesDelete} onNodeDrag={onNodeDrag} onNodeDragStop={onDragStop}
       onDragOver={(e) => { if (e.dataTransfer.types.includes('text/plain')) e.preventDefault(); }} onDrop={onDrop}
       onNodeClick={(_e, n) => { if (n.type === 'contact') select(n.id); }} onPaneClick={onPaneClick} onNodesDelete={onNodesDelete} selectionKeyCode="Shift" multiSelectionKeyCode={['Meta', 'Control']}
-      colorMode={colorMode} minZoom={0.1} maxZoom={2} proOptions={{ hideAttribution: true }} deleteKeyCode={['Backspace', 'Delete']}
+      colorMode={colorMode} minZoom={0.1} maxZoom={2} translateExtent={extent} zoomOnDoubleClick={false} onDoubleClick={(e) => { if (e.target.classList?.contains('react-flow__pane')) fitAll(); }} proOptions={{ hideAttribution: true }} deleteKeyCode={['Backspace', 'Delete']}
       defaultEdgeOptions={{ markerEnd: undefined }}
     >
       <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} color="var(--dot)" />

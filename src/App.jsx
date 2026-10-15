@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useStore, effectiveTheme } from './store.js';
 import Board from './Board.jsx';
 import GridView from './GridView.jsx';
+import Logo from './Logo.jsx';
+import OutlineView from './OutlineView.jsx';
 import Legend from './Legend.jsx';
 import SearchBar from './SearchBar.jsx';
 import Home from './Home.jsx';
@@ -75,7 +77,11 @@ export default function App() {
     say(`Colored ${n} people from Salesforce`);
   };
   const push = async () => {
-    if (!confirm('Write the manual changes (Reports To, Region, Role, ES status) to Salesforce Contacts?')) return;
+    const ch = s.pendingChanges();
+    if (!ch.length) { say('Nothing to push — no changes waiting'); return; }
+    const kinds = { ReportsToId: 'Reports To', Region__c: 'Region', Contact_Role__c: 'Role', ES_Expansion_Status__c: 'ES status' };
+    const tally = Object.entries(kinds).map(([k, l]) => [l, ch.filter((f) => k in f).length]).filter(([, n]) => n).map(([l, n]) => `  • ${l}: ${n}`).join('\n');
+    if (!confirm(`This WRITES to Salesforce (not just the board).\n\n${ch.length} contact(s) will be updated:\n${tally}\n\nContinue?`)) return;
     try { const r = await s.push(); say(r.n ? `Pushed ${r.n} contact(s)${r.failed ? `, ${r.failed} failed` : ''}` : 'Nothing to push'); } catch (e) { say(e.message); }
   };
   return (
@@ -83,11 +89,14 @@ export default function App() {
       <header className="top">
         <button className="btn ghost" title="Back to the homepage" onClick={() => { s.flushNow(); useStore.setState({ account: null, data: null, review: null, selected: null }); }}>⌂ Home</button>
         <div className="switch">
-          <button className="btn ghost" title="Switch account" onClick={() => setMenu(menu === 'switch' ? null : 'switch')}>{s.loading && s.loadingName ? s.loadingName : s.account.Name} ▾</button>
+          <button className="btn ghost" title="Switch account" onClick={() => setMenu(menu === 'switch' ? null : 'switch')}>{!s.loading && <Logo website={s.account.Website} size={20} className="hdr-logo" />}{s.loading && s.loadingName ? s.loadingName : s.account.Name} ▾</button>
           {menu === 'switch' && <AccountSwitcher current={s.account.Id} onClose={() => setMenu(null)} />}
         </div>
+        <span className="board-only" title="Everything you change here stays on this board until you choose Push changes to Salesforce.">Board only · Salesforce unchanged</span>
+        {!s.loading && s.data?.contacts?.some((c) => c.Account_Target) && <span className="target-badge" title="Target / sales-focus account">◎ Target account</span>}
         <div className="seg">
           <button className={s.view === 'board' ? 'on' : ''} onClick={() => s.setShow('view', 'board')}>Board</button>
+          <button className={s.view === 'outline' ? 'on' : ''} onClick={() => s.setShow('view', 'outline')}>Outline</button>
           <button className={s.view === 'grid' ? 'on' : ''} onClick={() => s.setShow('view', 'grid')}>Grid</button>
         </div>
         <span className="grow" />
@@ -98,8 +107,8 @@ export default function App() {
             <button className="item" onClick={() => { setMenu(null); if (confirm('Discard every manual and Salesforce reporting line on this board and rebuild purely from titles? (⌘Z undoes this)')) { s.autoBuild({ overwrite: true }); say('Rebuilt from titles only'); } }}>Rebuild from scratch (ignore existing links)</button>
             <button className="item" onClick={() => { s.resetLayout(); setMenu(null); }}>Reset card positions</button>
             <button className="item" onClick={() => { setMenu(null); suggestColors(); }}>Color contacts from Salesforce…</button>
-            <button className="item" onClick={() => { setMenu(null); if (confirm('Remove the green / orange / yellow color from every card on this board?')) { const all = s.people().filter((p) => p.cstatus).map((p) => p.Id); s.setStatus(all, null); say('Colors cleared (⌘Z to undo)'); } }}>Clear all colors</button>
-            <button className="item" disabled={!s.status.canWrite} title={s.status.canWrite ? '' : !s.status.switchOn ? 'Writes are switched off (ALLOW_WRITE=1)' : 'You don’t have permission to update Salesforce'} onClick={() => { setMenu(null); push(); }}>Push changes to Salesforce</button>
+            <button className="item" onClick={() => { setMenu(null); { const all = s.people().filter((p) => p.cstatus).map((p) => p.Id); if (!all.length) { say('No cards are colored'); } else if (confirm(`Clear the Contact status color from ${all.length} card(s) on this board?\n\nBoard only — nothing in Salesforce changes. You can undo with ⌘Z.`)) { s.setStatus(all, null); say(`Cleared ${all.length} color(s) — Salesforce unchanged (⌘Z to undo)`); } } }}>Clear all colors (board only)</button>
+            <button className="item" disabled={!s.status.canWrite} title={s.status.canWrite ? '' : !s.status.switchOn ? 'Writes are switched off (ALLOW_WRITE=1)' : 'You don’t have permission to update Salesforce'} onClick={() => { setMenu(null); push(); }}>Push changes to Salesforce…</button>
             {s.status.admin && <button className="item" onClick={() => setMenu('access')}>Manage write access…</button>}
           </div>}
         </div>
@@ -119,11 +128,19 @@ export default function App() {
       </header>
       {s.status.demo && <div className="banner">Demo data — Salesforce not connected.</div>}
       {!s.status.demo && !s.status.canWrite && <div className="banner info">Board-only mode — your changes are saved here but won’t update Salesforce.</div>}
+      {s.conflict && (
+        <div className="banner err conflict" role="alert">
+          <span><b>{s.conflict.by ? s.conflict.by.split('@')[0] : 'Someone'}</b> saved changes to this board while you were editing, so your latest edits are not saved yet.</span>
+          <span className="grow" />
+          <button className="btn sm" onClick={() => s.reloadBoard()}>Load their version</button>
+          <button className="btn ghost sm" onClick={() => { if (confirm('Overwrite their changes with yours? This cannot be undone.')) s.keepMine(); }}>Keep mine</button>
+        </div>
+      )}
       <SearchBar />
       {s.error && <div className="banner err">{s.error}</div>}
-      <main className={`${s.view === 'grid' ? 'grid-mode' : ''} tool-${s.tool}`}>
+      <main className={`${s.view !== 'board' ? 'grid-mode' : ''} tool-${s.tool}`}>
         {s.loading && <Loading name={s.loadingName} />}
-        {s.view === 'board' ? <><Board /><CanvasToolbar /><Legend /><ReferenceOverlay /></> : <GridView />}
+        {s.view === 'board' ? <><Board /><CanvasToolbar /><Legend /><ReferenceOverlay /></> : s.view === 'outline' ? <OutlineView /> : <GridView />}
         {menu === 'enrich' ? <EnrichPanel onClose={close} /> : menu === 'access' ? <AccessPanel onClose={close} /> : menu === 'fields' ? <FieldPicker onClose={close} />
           : menu === 'account' ? <AccountPanel onClose={close} /> : menu === 'people' ? <PeoplePanel onClose={close} /> : menu === 'comments' ? <CommentsPanel onClose={close} /> : menu === 'reference' ? <ReferencePanel onClose={close} /> : menu === 'add' ? <AddPersonPanel onClose={close} /> : <DetailPanel />}
       </main>

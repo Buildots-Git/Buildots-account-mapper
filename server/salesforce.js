@@ -41,11 +41,45 @@ export function getConn() {
 const esc = (s) => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 const idList = (ids) => ids.map((i) => `'${esc(i)}'`).join(',');
 
+// ---- account search ----
+// All account names are kept in memory (about 10k rows) and refreshed every 15 minutes, so search is instant and forgiving:
+// it ignores case, spaces and punctuation ("jedunn" finds "JE Dunn") and accepts the words in any order.
+const squash = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+let acctIndex = null, acctIndexAt = 0, acctBuilding = null;
+async function buildIndex() {
+  const r = await query('SELECT Id, Name, Industry, BillingCountry, Type, Target_Account__c, Sales_Focus__c, NumberOfEmployees FROM Account ORDER BY Name');
+  acctIndex = r.records.map(({ attributes, ...a }) => ({ ...a, _k: squash(a.Name), _w: String(a.Name || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean) }));
+  acctIndexAt = Date.now();
+}
+/** Start (or refresh) the index in the background; never blocks a request. */
+export function warmAccountIndex() {
+  if (acctBuilding || (acctIndex && Date.now() - acctIndexAt < 15 * 60_000)) return;
+  acctBuilding = buildIndex().catch(() => {}).finally(() => { acctBuilding = null; });
+}
+
+function searchIndex(q) {
+  const k = squash(q); const words = String(q).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const scored = [];
+  for (const a of acctIndex) {
+    let score = 0;
+    if (a._k === k) score = 100;
+    else if (a._k.startsWith(k)) score = 80;
+    else if (a._w.some((w) => w.startsWith(k))) score = 70;
+    else if (a._k.includes(k)) score = 55;
+    else if (words.length > 1 && words.every((w) => a._k.includes(w))) score = 50;
+    if (score) scored.push([score + (a.Sales_Focus__c ? 3 : 0) + (a.Target_Account__c ? 2 : 0) - a._k.length / 1000, a]);
+  }
+  return scored.sort((x, y) => y[0] - x[0]).slice(0, 25).map(([, a]) => { const { _k, _w, ...rest } = a; return rest; });
+}
+
 export async function searchAccounts(q) {
-  const term = esc(q.trim());
-  const where = term ? `WHERE Name LIKE '%${term}%'` : 'WHERE Sales_Focus__c = true';
+  warmAccountIndex();
+  const term = q.trim();
+  if (term && acctIndex) return searchIndex(term);
+  const e = esc(term);
+  const where = e ? `WHERE Name LIKE '%${e}%'` : 'WHERE Sales_Focus__c = true';
   const r = await query(`SELECT Id, Name, Industry, BillingCountry, Type, Target_Account__c, Sales_Focus__c, NumberOfEmployees FROM Account ${where} ORDER BY Name LIMIT 25`).catch(async () =>
-    query(`SELECT Id, Name, Industry, BillingCountry FROM Account ${term ? where : ''} ORDER BY Name LIMIT 25`));
+    query(`SELECT Id, Name, Industry, BillingCountry FROM Account ${e ? where : ''} ORDER BY Name LIMIT 25`));
   return r.records.map(({ attributes, ...a }) => a);
 }
 
@@ -136,6 +170,6 @@ export async function updateContacts(changes) {
 /** Account details for a set of ids (used to label boards that were saved before the homepage existed). */
 export async function accountsByIds(ids) {
   const ok = ids.filter((i) => /^[a-zA-Z0-9]{15,18}$/.test(i)); if (!ok.length) return [];
-  const r = await query(`SELECT Id, Name, Industry, BillingCountry, Type, Target_Account__c, Sales_Focus__c FROM Account WHERE Id IN (${ok.map((i) => `'${i}'`).join(',')})`);
+  const r = await query(`SELECT Id, Name, Industry, BillingCountry, Type, Website, Target_Account__c, Sales_Focus__c FROM Account WHERE Id IN (${ok.map((i) => `'${i}'`).join(',')})`);
   return r.records.map(({ attributes, ...a }) => a);
 }

@@ -96,7 +96,6 @@ export function DetailPanel() {
         <F label="ES status"><select value={p.ES_Expansion_Status__c || ''} onChange={(e) => patch(p.Id, { es: e.target.value || null })}><option value="" />{ES_STATES.map((r) => <option key={r}>{r}</option>)}</select></F>
         <F label="Region"><input defaultValue={p.Region__c || ''} onBlur={(e) => patch(p.Id, { region: e.target.value || null })} /></F>
         <F label="ECM ★"><select value={p.Enterprise_Coalition_Member__c ? 'y' : 'n'} onChange={(e) => patch(p.Id, { ecm: e.target.value === 'y' })}><option value="y">Enterprise Coalition Member</option><option value="n">No</option></select></F>
-        <F label="Target marker"><select value={p.Account_Target ? 'y' : 'n'} onChange={(e) => patch(p.Id, { enterprise: e.target.value === 'y' })}><option value="y">Shown</option><option value="n">Hidden</option></select></F>
       </div>
       <dl>
         {[['Email', p.Email], ['Phone', p.Phone], ['City', p.MailingCity], ['Department', p.Department], ['Owner', p.Owner?.Name]].filter(([, v]) => v).map(([k, v]) => <React.Fragment key={k}><dt>{k}</dt><dd>{v}</dd></React.Fragment>)}
@@ -228,7 +227,6 @@ export function FieldPicker({ onClose }) {
         <Sw label="Role" on={highlight.role} set={(on) => setShow('highlight', { ...highlight, role: on })} />
         <Sw label="ES / ECM status" on={highlight.es} set={(on) => setShow('highlight', { ...highlight, es: on })} />
         <Sw label="★ ECM star" on={highlight.ecm} set={(on) => setShow('highlight', { ...highlight, ecm: on })} />
-        <Sw label="Target marker" on={L.target} set={(on) => setLayout({ target: on })} />
         <Sw label="Office / region name" on={L.office} set={(on) => setLayout({ office: on })} />
         <Sw label="Opportunities" on={showRelated.opps} set={(on) => setShow('showRelated', { ...showRelated, opps: on })} />
         <Sw label="Project leads" on={showRelated.leads} set={(on) => setShow('showRelated', { ...showRelated, leads: on })} />

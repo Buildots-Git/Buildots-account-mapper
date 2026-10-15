@@ -1,3 +1,4 @@
+import Logo from './Logo.jsx';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useStore } from './store.js';
 import ThemeToggle from './ThemeToggle.jsx';
@@ -15,7 +16,7 @@ function Tile({ item, onOpen, onRemove }) {
   return (
     <div className="tile" role="button" tabIndex={0} onClick={() => onOpen(item)} onKeyDown={(e) => { if (e.key === 'Enter') onOpen(item); }}>
       <div className="tile-top" style={{ background: `linear-gradient(135deg, hsl(${h} 70% 55%), hsl(${(h + 40) % 360} 70% 42%))` }}>
-        <span className="tile-ini">{initials(item.name)}</span>
+        <span className="tile-ini"><Logo website={item.website} size={56} className="tile-logo">{initials(item.name)}</Logo></span>
         <div className="tile-badges">
           {item.target && <span className="tb">Target</span>}
           {item.salesFocus && <span className="tb">Sales focus</span>}

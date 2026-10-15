@@ -103,7 +103,15 @@ export function csrfGuard(req, res, next) {
 
 // ---------------------------------------------------------------- login attempts
 const fails = new Map(); // "ip|user" -> { n, until }
-const failKey = (req, u) => `${req.socket.remoteAddress}|${u}`;
+const LOCAL = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
+/** The visitor's address. Behind a tunnel on this machine every request arrives from 127.0.0.1, so trust the forwarded address
+ *  - but only when the connection itself is local, so a remote caller cannot fake it. */
+export function clientIp(req) {
+  const local = LOCAL.includes(req.socket.remoteAddress);
+  const fwd = local && (req.headers['cf-connecting-ip'] || String(req.headers['x-forwarded-for'] || '').split(',')[0].trim());
+  return fwd || req.socket.remoteAddress;
+}
+const failKey = (req, u) => `${clientIp(req)}|${u}`;
 export function lockedFor(req, u) { const f = fails.get(failKey(req, u)); return f && f.until > Date.now() ? Math.ceil((f.until - Date.now()) / 1000) : 0; }
 function noteFail(req, u) { const k = failKey(req, u); const f = fails.get(k) || { n: 0, until: 0 }; if (f.until && f.until <= Date.now()) { f.n = 0; f.until = 0; } f.n++; if (f.n >= MAX_FAILS) f.until = Date.now() + LOCK_MS; fails.set(k, f); }
 

@@ -43,11 +43,11 @@ export function CardBody({ data, selected, children }) {
     <div className={`cnode${selected ? ' sel' : ''}${p.external ? ' ext' : ''}${dim ? ' dim' : ''}${hit ? ' hit' : ''}${drop ? ' drop' : ''}${ecm ? ' ecm' : ''}${p.cstatus ? ` st st-${p.cstatus}` : ''}`}
       style={{ '--accent': color || '#cbd2dc', '--fs': L.font, width: L.width }}>
       {children}
+      {data.branch && <button className={`fold nodrag${data.branch.folded ? ' on' : ''}`} title={data.branch.folded ? `Show ${data.branch.n} people in this team` : 'Hide this team'} onClick={(e) => { e.stopPropagation(); useStore.getState().toggleBranch(p.Id, data.branch.folded); }}>{data.branch.folded ? `+${data.branch.n}` : '−'}</button>}
       {ecm && <span className="ecm-star" title="Enterprise Coalition Member (ECM)">★</span>}
       {L.office && branchLabel && <div className="branch" style={{ color }}>{branchLabel}</div>}
       <div className="name">
         {p.Name}
-        {L.target && p.Account_Target && <span className="target" title="Target / sales-focus account" />}
       </div>
       {showFields.includes('Title') && <div className="title">{p.Title || <i>No title</i>}</div>}
       {(role || es) && (
