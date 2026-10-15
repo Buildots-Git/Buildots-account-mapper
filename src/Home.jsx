@@ -18,6 +18,8 @@ function Tile({ item, onOpen, onRemove }) {
       <div className="tile-top" style={{ background: `linear-gradient(135deg, hsl(${h} 70% 55%), hsl(${(h + 40) % 360} 70% 42%))` }}>
         <span className="tile-ini"><Logo website={item.website} size={56} className="tile-logo">{initials(item.name)}</Logo></span>
         <div className="tile-badges">
+          {item.subsidiaries > 0 && <span className="tb fam">Parent · {item.subsidiaries}</span>}
+          {item.parent && <span className="tb fam" title={`Part of ${item.parent}`}>Subsidiary</span>}
           {item.target && <span className="tb">Target</span>}
           {item.salesFocus && <span className="tb">Sales focus</span>}
           {item.demo && <span className="tb">Demo</span>}
@@ -49,7 +51,7 @@ export default function Home() {
   useEffect(() => { const t = setTimeout(() => search(q), 250); return () => clearTimeout(t); }, [q]);
 
   const recentIds = useMemo(() => new Set(recent.map((r) => r.id)), [recent]);
-  const fromSearch = (a) => ({ id: a.Id, name: a.Name, industry: a.Industry, country: a.BillingCountry, target: a.Target_Account__c, salesFocus: a.Sales_Focus__c, demo: String(a.Id).startsWith('demo'), hasBoard: recentIds.has(a.Id) });
+  const fromSearch = (a) => ({ id: a.Id, name: a.Name, industry: a.Industry, country: a.BillingCountry, target: a.Target_Account__c, salesFocus: a.Sales_Focus__c, subsidiaries: a.Subsidiaries || 0, parent: a.ParentName || null, demo: String(a.Id).startsWith('demo'), hasBoard: recentIds.has(a.Id) });
   const fromRecent = (r) => ({ ...r, demo: String(r.id).startsWith('demo') });
   const searching = q.trim().length > 0;
   const results = accounts.map(fromSearch);

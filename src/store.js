@@ -87,7 +87,7 @@ export const useStore = create((set, get) => ({
         showRelated: board?.showRelated || dflt?.rel || DEFAULT_REL, hideUntitled: board?.hideUntitled ?? true, highlight: { ...DEFAULT_HL, ...(board?.highlight || dflt?.hl || {}) }, gridCols: board?.gridCols || ['title', 'reportsTo', 'role', 'es', 'vis'] });
       // the homepage's "recent boards" tile
       const a = data.account;
-      api(`/recent/${id}/open`, jsonOpts('POST', { name: a.Name, industry: a.Industry, country: a.BillingCountry, type: a.Type, website: a.Website || null, target: !!a.Target_Account__c, salesFocus: !!a.Sales_Focus__c, contacts: data.contacts.length })).catch(() => {});
+      api(`/recent/${id}/open`, jsonOpts('POST', { name: a.Name, industry: a.Industry, country: a.BillingCountry, type: a.Type, website: a.Website || null, subsidiaries: Math.max(0, (data.family?.length || 1) - 1), parent: a.Parent || null, target: !!a.Target_Account__c, salesFocus: !!a.Sales_Focus__c, contacts: data.contacts.length })).catch(() => {});
     } catch (e) { set({ loading: false, error: e.message }); }
   },
   async loadRecent() { try { set({ recent: await api('/recent') }); } catch { /* the homepage works without it */ } },

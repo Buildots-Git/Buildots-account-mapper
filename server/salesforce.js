@@ -47,8 +47,9 @@ const idList = (ids) => ids.map((i) => `'${esc(i)}'`).join(',');
 const squash = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 let acctIndex = null, acctIndexAt = 0, acctBuilding = null;
 async function buildIndex() {
-  const r = await query('SELECT Id, Name, Industry, BillingCountry, Type, Target_Account__c, Sales_Focus__c, NumberOfEmployees FROM Account ORDER BY Name');
-  acctIndex = r.records.map(({ attributes, ...a }) => ({ ...a, _k: squash(a.Name), _w: String(a.Name || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean) }));
+  const r = await query('SELECT Id, Name, Industry, BillingCountry, Type, Target_Account__c, Sales_Focus__c, NumberOfEmployees, ParentId, Parent.Name FROM Account ORDER BY Name');
+  const subs = {}; for (const a of r.records) if (a.ParentId) subs[a.ParentId] = (subs[a.ParentId] || 0) + 1;
+  acctIndex = r.records.map(({ attributes, Parent, ...a }) => ({ ...a, ParentName: Parent?.Name || null, Subsidiaries: subs[a.Id] || 0, _k: squash(a.Name), _w: String(a.Name || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean) }));
   acctIndexAt = Date.now();
 }
 /** Start (or refresh) the index in the background; never blocks a request. */

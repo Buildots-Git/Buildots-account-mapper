@@ -32,7 +32,7 @@ function AccountSwitcher({ current, onClose }) {
   return (
     <div className="pop" onMouseLeave={onClose}>
       <input autoFocus placeholder="Switch to account…" value={q} onChange={(e) => setQ(e.target.value)} />
-      <ul>{accounts.filter((a) => a.Id !== current).map((a) => <li key={a.Id} onClick={() => { onClose(); open(a.Id, a.Name); }}><b>{a.Name}</b><span className="muted sm">{[a.Industry, a.BillingCountry].filter(Boolean).join(' · ')}</span></li>)}</ul>
+      <ul>{accounts.filter((a) => a.Id !== current).map((a) => <li key={a.Id} onClick={() => { onClose(); open(a.Id, a.Name); }}><b>{a.Name}</b><span className="muted sm">{[a.Subsidiaries ? `Parent · ${a.Subsidiaries} subsidiaries` : a.ParentName ? `Part of ${a.ParentName}` : null, a.Industry, a.BillingCountry].filter(Boolean).join(' · ')}</span></li>)}</ul>
     </div>
   );
 }
@@ -92,6 +92,7 @@ export default function App() {
           <button className="btn ghost" title="Switch account" onClick={() => setMenu(menu === 'switch' ? null : 'switch')}>{!s.loading && <Logo website={s.account.Website} size={20} className="hdr-logo" />}{s.loading && s.loadingName ? s.loadingName : s.account.Name} ▾</button>
           {menu === 'switch' && <AccountSwitcher current={s.account.Id} onClose={() => setMenu(null)} />}
         </div>
+        {!s.loading && (s.data?.family?.length || 0) > 1 && <span className="target-badge" style={{ background: 'rgba(66,98,255,.14)', color: '#7b93ff', borderColor: 'rgba(66,98,255,.4)' }} title="This account has subsidiaries; they appear as account cards on the board">◈ Parent · {s.data.family.length - 1} subsidiaries</span>}
         {s.account.ParentId && !s.loading && <button className="btn ghost sm" title={`This account belongs to ${s.account.Parent}`} onClick={() => s.open(s.account.ParentId, s.account.Parent)}>↑ Part of {s.account.Parent}</button>}
         <span className="board-only" title="Everything you change here stays on this board until you choose Push changes to Salesforce.">Board only · Salesforce unchanged</span>
         {!s.loading && s.data?.contacts?.some((c) => c.Account_Target) && <span className="target-badge" title="Target / sales-focus account">◎ Target account</span>}
