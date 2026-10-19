@@ -49,7 +49,10 @@ export const useStore = create((set, get) => ({
   },
   // ---- sign-in ----
   async initAuth() {
-    try { const a = await api('/auth/state'); set({ auth: { checked: true, setupNeeded: a.setupNeeded, setupCodeRequired: a.setupCodeRequired, user: a.user, notice: null } }); }
+    try { const a = await api('/auth/state'); const q = new URLSearchParams(location.search); const err = q.get('sso_error');
+      if (err) history.replaceState(null, '', location.pathname);
+      set({ auth: { checked: true, setupNeeded: a.setupNeeded, setupCodeRequired: a.setupCodeRequired, sso: a.sso || null, user: a.user,
+        notice: err ? (q.get('sso_msg') || (err === 'off' ? 'Single sign-on is not set up on this server.' : err === 'config' ? 'Single sign-on is misconfigured. Ask an admin.' : 'Sign-in failed. Try again.')) : null } }); }
     catch { set({ auth: { checked: true, setupNeeded: false, setupCodeRequired: false, user: null, notice: 'Cannot reach the server. Is it running?' } }); }
   },
   async signIn(username, password) { const r = await api('/auth/login', jsonOpts('POST', { username, password })); set((s) => ({ auth: { ...s.auth, user: r.user, notice: null } })); },

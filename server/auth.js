@@ -136,6 +136,16 @@ export async function createUser({ username, password, role = 'user', mustChange
   all[name] = { hash: await hashPassword(password), role: role === 'admin' ? 'admin' : 'user', mustChange, canPush: !!canPush && role !== 'admin', createdAt: new Date().toISOString() };
   saveUsers(all); return publicUser(name, all[name]);
 }
+/** The user for an SSO sign-in: the existing one with that email, or a new regular user with no usable password. */
+export async function ssoUser(email) {
+  const name = normUser(email); const all = users();
+  if (!all[name]) {
+    if (!validUsername(name)) throw bad('That email cannot be used as a username.');
+    all[name] = { hash: await hashPassword(crypto.randomBytes(32).toString('base64url')), role: 'user', mustChange: false, canPush: false, sso: true, createdAt: new Date().toISOString() };
+  }
+  all[name].lastLoginAt = new Date().toISOString(); saveUsers(all);
+  return { username: name, user: all[name] };
+}
 export async function setPassword(username, password, { mustChange = false } = {}) {
   const name = normUser(username); const prob = passwordProblem(password, name); if (prob) throw bad(prob);
   const all = users(); if (!all[name]) throw bad('No such user.');

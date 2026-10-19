@@ -80,3 +80,11 @@ remove the test users.
 - Account load takes ~10-15 s (each query is a CLI call). A direct API connection would remove that.
 - Picture reading: names cut off at the picture's edge can't be recovered; only arrows are read as reporting lines.
 - Store each account's Miro link in Salesforce so nobody pastes it by hand.
+
+## Single sign-on (Okta)
+
+Off by default. To switch it on, ask IT for an OIDC web app in Okta (scopes `openid email profile`, sign-in redirect URI `PUBLIC_URL/api/auth/okta/callback`), then set in `.env`:
+
+`OKTA_ISSUER`, `OKTA_CLIENT_ID`, `OKTA_CLIENT_SECRET`, `PUBLIC_URL` (the fixed address registered in Okta), and optionally `SSO_ALLOWED_DOMAINS` (default `buildots.com`), `SSO_ONLY=1` (password sign-in off for non-admins) and `SSO_LABEL`.
+
+People sign in with Okta (password + MFA stay with Okta). The first sign-in creates a regular, board-only user named after their email; admins then set Salesforce write access in Users. Admins can always fall back to their password. Okta needs a fixed HTTPS address, so quick Cloudflare tunnels (new address each time) will not work.

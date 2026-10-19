@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { demoAccounts, demoAccountData, demoFields } from './demo.js';
 import * as creds from './creds.js';
+import * as sso from './sso.js';
 import { importBoard } from './miro.js';
 import { readOrgChart } from './vision.js';
 import { readChart } from './ocr.js';
@@ -30,7 +31,7 @@ app.use('/api', auth.authenticate, auth.csrfGuard);
 
 // ---- sign-in (public) ----
 const me = (u) => ({ username: u.username, role: u.role, mustChange: !!u.mustChange });
-app.get('/api/auth/state', (req, res) => res.json({ setupNeeded: !auth.hasUsers(), setupCodeRequired: !auth.isLoopback(req), user: req.user ? me(req.user) : null }));
+app.get('/api/auth/state', (req, res) => res.json({ setupNeeded: !auth.hasUsers(), setupCodeRequired: !auth.isLoopback(req), sso: sso.ssoEnabled() ? { label: sso.ssoLabel(), passwordLogin: !sso.passwordLoginOff() } : null, user: req.user ? me(req.user) : null }));
 
 app.post('/api/auth/setup', wrap(async (req, res) => { // creates the FIRST account (an admin); only possible while no account exists
   if (auth.hasUsers()) return res.status(403).json({ error: 'Setup is already done.' });
@@ -46,10 +47,25 @@ app.post('/api/auth/login', wrap(async (req, res) => {
   const r = await auth.checkLogin(req, username, password);
   if (r.locked) { audit({ action: 'auth-locked', user: auth.normUser(username), ip: auth.clientIp(req) }); return res.status(429).json({ error: `Too many attempts. Try again in ${Math.ceil(r.locked / 60)} minute${r.locked > 90 ? 's' : ''}.` }); }
   if (r.error) { audit({ action: 'auth-failed', user: auth.normUser(username), ip: auth.clientIp(req) }); return res.status(401).json({ error: r.error }); }
+  if (sso.ssoEnabled() && sso.passwordLoginOff() && r.user.role !== 'admin') return res.status(403).json({ error: `Password sign-in is turned off. Use “Sign in with ${sso.ssoLabel()}”.` });
   audit({ action: 'auth-login', user: r.username });
   auth.setCookie(req, res, auth.createSession(r.username)); res.json({ user: me({ username: r.username, ...r.user }) });
 }));
 
+// Okta single sign-on (only active when configured)
+app.get('/api/auth/okta/login', wrap(async (req, res) => {
+  if (!sso.ssoEnabled()) return res.redirect('/?sso_error=off');
+  try { res.redirect(await sso.startLogin(req)); } catch (e) { audit({ action: 'sso-error', error: e.message }); res.redirect('/?sso_error=config'); }
+}));
+app.get('/api/auth/okta/callback', wrap(async (req, res) => {
+  if (!sso.ssoEnabled()) return res.redirect('/?sso_error=off');
+  try {
+    const who = await sso.finishLogin(req);
+    const r = await auth.ssoUser(who.email);
+    audit({ action: 'auth-sso-login', user: r.username, ip: auth.clientIp(req) });
+    auth.setCookie(req, res, auth.createSession(r.username)); res.redirect('/');
+  } catch (e) { audit({ action: 'auth-sso-denied', error: e.message, ip: auth.clientIp(req) }); res.redirect(`/?sso_error=${encodeURIComponent(e.ssoCode || 'failed')}&sso_msg=${encodeURIComponent(e.ssoCode ? e.message : 'Sign-in failed.')}`); }
+}));
 app.post('/api/auth/logout', (req, res) => { if (req.user) audit({ action: 'auth-logout', user: req.user.username }); auth.endSession(req.sessionToken); auth.clearCookie(res); res.json({ ok: true }); });
 
 app.post('/api/auth/password', auth.requireUser, wrap(async (req, res) => {

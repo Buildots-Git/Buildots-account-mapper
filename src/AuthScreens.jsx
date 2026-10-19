@@ -35,18 +35,27 @@ function Shell({ title, sub, children }) {
 
 export function LoginScreen() {
   const signIn = useStore((s) => s.signIn);
+  const sso = useStore((s) => s.auth.sso); const notice = useStore((s) => s.auth.notice);
+  const [showPw, setShowPw] = useState(false);
+  const pwForm = !sso || sso.passwordLogin || showPw;
   const [u, setU] = useState(''); const [p, setP] = useState(''); const [err, setErr] = useState(null); const [busy, setBusy] = useState(false);
   const go = async () => {
     if (!u.trim() || !p || busy) return; setBusy(true); setErr(null);
     try { await signIn(u, p); } catch (e) { setErr(e.message); setP(''); } finally { setBusy(false); }
   };
   return (
-    <Shell title="Sign in" sub="Use your Account Mapper username and password.">
+    <Shell title="Sign in" sub={sso ? `Sign in with your company ${sso.label} account.` : 'Use your Account Mapper username and password.'}>
+      {notice && <div className="warn" role="alert">{notice}</div>}
+      {sso && <a className="btn" href="/api/auth/okta/login" style={{ textAlign: 'center', textDecoration: 'none' }}>Sign in with {sso.label}</a>}
+      {sso && !pwForm && <button className="link" onClick={() => setShowPw(true)}>Admin password sign-in</button>}
+      {sso && pwForm && <div className="muted sm" style={{ textAlign: 'center' }}>— or use a password —</div>}
+      {pwForm && <>
       <label className="f">Username<input autoFocus autoComplete="username" autoCapitalize="none" value={u} onChange={(e) => setU(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') document.querySelector('.authcard input[type=password],.authcard .pwrow input')?.focus(); }} /></label>
       <PasswordInput label="Password" value={p} onChange={setP} autoComplete="current-password" onEnter={go} />
       {err && <div className="warn" role="alert">{err}</div>}
       <button className="btn" disabled={busy || !u.trim() || !p} onClick={go}>{busy ? 'Signing in…' : 'Sign in'}</button>
       <p className="muted sm">Forgot your password? Ask an admin to reset it for you.</p>
+      </>}
     </Shell>
   );
 }
