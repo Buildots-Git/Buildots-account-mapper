@@ -157,8 +157,26 @@ function UsersModal({ onClose }) {
   );
 }
 
+/** Shown instead of the app when per-user Salesforce login is on and this person has not linked their Salesforce account yet. */
+export function ConnectSalesforce() {
+  const notice = useStore((s) => s.sfNotice); const signOut = useStore((s) => s.signOut); const connect = useStore((s) => s.connectSalesforce);
+  const [err, setErr] = useState('');
+  return (
+    <div className="center">
+      <div className="card" style={{ width: 'min(440px,94vw)', padding: 22, display: 'grid', gap: 12 }}>
+        <h2 style={{ margin: 0 }}>Connect your Salesforce account</h2>
+        <p className="muted" style={{ margin: 0 }}>Account Mapper reads and updates Salesforce as <b>you</b>, so you see only what your Salesforce permissions allow, and any change is recorded under your name in Salesforce. You sign in to Salesforce on their page; we never see your password.</p>
+        {(notice || err) && <div className="warn">{err || notice}</div>}
+        <button className="btn primary" onClick={() => connect().catch((e) => setErr(e.message))}>Connect Salesforce</button>
+        <button className="link" onClick={() => signOut()}>Sign out</button>
+      </div>
+    </div>
+  );
+}
+
 export function UserMenu() {
   const user = useStore((s) => s.auth.user); const signOut = useStore((s) => s.signOut);
+  const sfLogin = useStore((s) => s.status?.sfLogin); const connect = useStore((s) => s.connectSalesforce); const disconnect = useStore((s) => s.disconnectSalesforce);
   const [open, setOpen] = useState(false); const [dlg, setDlg] = useState(null);
   if (!user) return null;
   return (
@@ -169,6 +187,8 @@ export function UserMenu() {
       {open && (
         <div className="pop" onMouseLeave={() => setOpen(false)}>
           <div className="muted sm" style={{ padding: '2px 8px' }}>Signed in as <b>{user.username}</b> · {user.role}</div>
+          {sfLogin && <div className="muted sm" style={{ padding: '2px 8px' }}>Salesforce: {sfLogin.connected ? <>as <b>{sfLogin.label || 'you'}</b></> : 'not connected'}</div>}
+          {sfLogin?.connected && <button className="item" onClick={() => { setOpen(false); if (confirm('Disconnect your Salesforce account? You will need to connect again to use the tool.')) disconnect(); }}>Disconnect Salesforce</button>}
           <button className="item" onClick={() => { setOpen(false); setDlg('password'); }}>Change password</button>
           {user.role === 'admin' && <button className="item" onClick={() => { setOpen(false); setDlg('users'); }}>Manage users…</button>}
           <button className="item" onClick={() => { setOpen(false); signOut(); }}>Sign out</button>

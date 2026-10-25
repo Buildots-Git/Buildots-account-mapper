@@ -8,7 +8,7 @@ import Legend from './Legend.jsx';
 import SearchBar from './SearchBar.jsx';
 import Home from './Home.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
-import { LoginScreen, SetupScreen, ForcedChangeScreen, UserMenu } from './AuthScreens.jsx';
+import { LoginScreen, SetupScreen, ForcedChangeScreen, UserMenu, ConnectSalesforce } from './AuthScreens.jsx';
 import ReviewModal from './ReviewModal.jsx';
 import CanvasToolbar from './CanvasToolbar.jsx';
 import { DetailPanel, EnrichPanel, FieldPicker, AddPersonPanel, ReferencePanel, ReferenceOverlay, CommentsPanel, PeoplePanel, AccountPanel } from './Panels.jsx';
@@ -61,6 +61,7 @@ export default function App() {
   if (s.auth.user.mustChange) return <ForcedChangeScreen />;
   if (fatal) return <div className="center"><div className="warn">Can’t reach the Account Mapper API ({fatal}). Check the terminal running <code>npm run dev</code> for errors.</div></div>;
   if (!s.status) return <div className="center muted">Loading…</div>;
+  if (s.status.sfLogin && !s.status.sfLogin.connected) return <ConnectSalesforce />;
   if (!s.account) return <>{s.status.demo && <div className="banner">Salesforce not reachable — showing demo data only.</div>}{s.error && <div className="banner err">{s.error}</div>}{s.loading ? <Loading name={s.loadingName} full /> : <Home />}</>;
 
   const pendingN = s.pendingChanges().length;

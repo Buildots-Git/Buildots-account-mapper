@@ -88,3 +88,13 @@ Off by default. To switch it on, ask IT for an OIDC web app in Okta (scopes `ope
 `OKTA_ISSUER`, `OKTA_CLIENT_ID`, `OKTA_CLIENT_SECRET`, `PUBLIC_URL` (the fixed address registered in Okta), and optionally `SSO_ALLOWED_DOMAINS` (default `buildots.com`), `SSO_ONLY=1` (password sign-in off for non-admins) and `SSO_LABEL`.
 
 People sign in with Okta (password + MFA stay with Okta). The first sign-in creates a regular, board-only user named after their email; admins then set Salesforce write access in Users. Admins can always fall back to their password. Okta needs a fixed HTTPS address, so quick Cloudflare tunnels (new address each time) will not work.
+
+## Per-user Salesforce login
+
+Off by default (everyone then shares the server's `sf` CLI login, so everyone sees what that one person sees and every change is recorded under their name).
+
+To switch it on, a Salesforce admin creates a **Connected App** (Setup → App Manager → New Connected App) with: OAuth enabled, callback URL `PUBLIC_URL/api/auth/salesforce/callback`, scopes **Manage user data via APIs (api)** and **Perform requests at any time (refresh_token, offline_access)**, "Require Proof Key for Code Exchange (PKCE)" on, and access granted to the right profiles/permission sets. Then set `SF_CLIENT_ID` (Consumer Key), `SF_CLIENT_SECRET` (if the app has one), `SF_LOGIN_URL` and `PUBLIC_URL` in `.env` and restart.
+
+From then on each person clicks **Connect Salesforce** once. Every read and write runs as them, so Salesforce enforces visibility, field-level security, sharing and edit rights, and records the real author. Refresh tokens are stored encrypted per user; **Disconnect Salesforce** is in the profile menu. The "Salesforce write" switch in Users still applies on top. `npm run test:sf` checks the flow against a fake Salesforce.
+
+Known limits: boards, tiles (account names) and notes saved on the server are shared by everyone who can open the tool; only the live Salesforce data is per-person.

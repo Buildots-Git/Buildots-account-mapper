@@ -1,10 +1,33 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { parseSfJson, CLI_ENV } from './sfjson.js';
+import * as sfauth from './sfauth.js';
 
 const run = promisify(execFile);
 const org = () => process.env.SF_ORG || 'prod';
 const API = 'v67.0';
+
+// Who is making the current request. With per-user Salesforce login on, every call below runs as that person.
+const als = new AsyncLocalStorage();
+export const withUser = (user, fn) => als.run({ user }, fn);
+const who = () => als.getStore()?.user || null;
+const perUser = () => sfauth.perUserEnabled();
+const key = () => (perUser() ? who() || '_none' : '_shared'); // caches that hold Salesforce data are kept per person
+
+async function api(path, method = 'GET', body, retried = false) {
+  const a = await sfauth.access(who());
+  const r = await fetch(`${a.instance}${path}`, { method, headers: { authorization: `Bearer ${a.token}`, 'content-type': 'application/json', accept: 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401 && !retried) { await sfauth.access(who(), true); return api(path, method, body, true); }
+  const t = await r.text(); let j = {}; try { j = t ? JSON.parse(t) : {}; } catch {}
+  if (!r.ok) { const m = Array.isArray(j) ? j[0] : j; throw new Error(m?.message || `Salesforce error ${r.status}`); }
+  return j;
+}
+async function apiQuery(soql) {
+  let j = await api(`/services/data/${API}/query?q=${encodeURIComponent(soql)}`); const records = [...j.records];
+  while (j.nextRecordsUrl && records.length < 50_000) { j = await api(j.nextRecordsUrl); records.push(...j.records); }
+  return { records };
+}
 
 // All Salesforce access goes through the sf CLI, which owns login and token refresh.
 // (`sf org display` hands back a redacted token, so we never handle access tokens ourselves.)
@@ -18,9 +41,10 @@ async function sf(args) {
     throw new Error(msg.split('\n')[0]);
   }
 }
-const query = async (soql) => ({ records: (await sf(['data', 'query', '--query', soql])).records });
+const query = async (soql) => (perUser() ? apiQuery(soql) : { records: (await sf(['data', 'query', '--query', soql])).records });
 // `sf api request rest` prints the raw response body (no --json flag); an empty body means success (e.g. PATCH -> 204).
 async function rest(path, method = 'GET', body) {
+  if (perUser()) return api(`/services/data/${API}${path}`, method, body);
   try {
     const { stdout } = await run('sf', ['api', 'request', 'rest', `/services/data/${API}${path}`, '--method', method, ...(body ? ['--body', JSON.stringify(body)] : []), '--target-org', org()], { maxBuffer: 256 * 1024 * 1024, env: CLI_ENV });
     const t = stdout.trim(); return t ? JSON.parse(t) : {};
@@ -45,23 +69,26 @@ const idList = (ids) => ids.map((i) => `'${esc(i)}'`).join(',');
 // All account names are kept in memory (about 10k rows) and refreshed every 15 minutes, so search is instant and forgiving:
 // it ignores case, spaces and punctuation ("jedunn" finds "JE Dunn") and accepts the words in any order.
 const squash = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-let acctIndex = null, acctIndexAt = 0, acctBuilding = null;
+const idxs = new Map(); // key -> { rows, at, building }
+const idx = () => { const k = key(); if (!idxs.has(k)) idxs.set(k, { rows: null, at: 0, building: null }); return idxs.get(k); };
 async function buildIndex() {
+  const st = idx();
   const r = await query('SELECT Id, Name, Industry, BillingCountry, Type, Target_Account__c, Sales_Focus__c, NumberOfEmployees, ParentId, Parent.Name FROM Account ORDER BY Name');
   const subs = {}; for (const a of r.records) if (a.ParentId) subs[a.ParentId] = (subs[a.ParentId] || 0) + 1;
-  acctIndex = r.records.map(({ attributes, Parent, ...a }) => ({ ...a, ParentName: Parent?.Name || null, Subsidiaries: subs[a.Id] || 0, _k: squash(a.Name), _w: String(a.Name || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean) }));
-  acctIndexAt = Date.now();
+  st.rows = r.records.map(({ attributes, Parent, ...a }) => ({ ...a, ParentName: Parent?.Name || null, Subsidiaries: subs[a.Id] || 0, _k: squash(a.Name), _w: String(a.Name || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean) }));
+  st.at = Date.now();
 }
 /** Start (or refresh) the index in the background; never blocks a request. */
 export function warmAccountIndex() {
-  if (acctBuilding || (acctIndex && Date.now() - acctIndexAt < 15 * 60_000)) return;
-  acctBuilding = buildIndex().catch(() => {}).finally(() => { acctBuilding = null; });
+  const st = idx();
+  if (st.building || (st.rows && Date.now() - st.at < 15 * 60_000)) return;
+  st.building = buildIndex().catch(() => {}).finally(() => { st.building = null; });
 }
 
 function searchIndex(q) {
   const k = squash(q); const words = String(q).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
   const scored = [];
-  for (const a of acctIndex) {
+  for (const a of idx().rows) {
     let score = 0;
     if (a._k === k) score = 100;
     else if (a._k.startsWith(k)) score = 80;
@@ -76,7 +103,7 @@ function searchIndex(q) {
 export async function searchAccounts(q) {
   warmAccountIndex();
   const term = q.trim();
-  if (term && acctIndex) return searchIndex(term);
+  if (term && idx().rows) return searchIndex(term);
   const e = esc(term);
   const where = e ? `WHERE Name LIKE '%${e}%'` : 'WHERE Sales_Focus__c = true';
   const r = await query(`SELECT Id, Name, Industry, BillingCountry, Type, Target_Account__c, Sales_Focus__c, NumberOfEmployees FROM Account ${where} ORDER BY Name LIMIT 25`).catch(async () =>
@@ -87,14 +114,14 @@ export async function searchAccounts(q) {
 const strip = (rs) => rs.map(({ attributes, ...r }) => r);
 
 // Fields of Contact the signed-in Salesforce user can see (respects field-level security).
-let catalog, catalogAt = 0;
+const catalogs = new Map();
 export async function contactFields() {
-  if (catalog && Date.now() - catalogAt < 3600_000) return catalog;
+  const hit = catalogs.get(key()); if (hit && Date.now() - hit.at < 3600_000) return hit.list;
   const d = await rest('/sobjects/Contact/describe');
-  catalog = d.fields.filter((f) => !['address', 'location', 'base64', 'anyType', 'complexvalue'].includes(f.type) && !f.deprecatedAndHidden)
+  const list = d.fields.filter((f) => !['address', 'location', 'base64', 'anyType', 'complexvalue'].includes(f.type) && !f.deprecatedAndHidden)
     .map((f) => ({ name: f.name, label: f.label, type: f.type })).sort((a, b) => a.label.localeCompare(b.label));
-  catalogAt = Date.now();
-  return catalog;
+  catalogs.set(key(), { list, at: Date.now() });
+  return list;
 }
 
 const BASE = ['Id', 'Name', 'Title', 'Department', 'Email', 'Phone', 'MailingCity', 'MailingState', 'MailingCountry', 'ReportsToId', 'AccountId',

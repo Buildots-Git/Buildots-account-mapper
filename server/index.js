@@ -4,6 +4,7 @@ import path from 'node:path';
 import { demoAccounts, demoAccountData, demoFields } from './demo.js';
 import * as creds from './creds.js';
 import * as sso from './sso.js';
+import * as sfauth from './sfauth.js';
 import { importBoard } from './miro.js';
 import { readOrgChart } from './vision.js';
 import { readChart } from './ocr.js';
@@ -20,7 +21,7 @@ try { // minimal .env loader, no extra dependency
 } catch {}
 
 const app = express();
-const wrap = (fn) => (req, res) => fn(req, res).catch((e) => res.status(e.status || 500).json({ error: e.message }));
+const wrap = (fn) => (req, res) => fn(req, res).catch((e) => res.status(e.status || 500).json({ error: e.message, ...(e.code === 'sf-connect' ? { code: 'sf-connect' } : {}) }));
 app.disable('x-powered-by');
 app.use((_req, res, next) => { // basic hardening headers
   res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('X-Frame-Options', 'DENY'); res.setHeader('Referrer-Policy', 'no-referrer'); res.setHeader('Cache-Control', 'no-store');
@@ -66,6 +67,15 @@ app.get('/api/auth/okta/callback', wrap(async (req, res) => {
     auth.setCookie(req, res, auth.createSession(r.username)); res.redirect('/');
   } catch (e) { audit({ action: 'auth-sso-denied', error: e.message, ip: auth.clientIp(req) }); res.redirect(`/?sso_error=${encodeURIComponent(e.ssoCode || 'failed')}&sso_msg=${encodeURIComponent(e.ssoCode ? e.message : 'Sign-in failed.')}`); }
 }));
+// Salesforce per-user login. The callback is public because the browser arrives from salesforce.com (cookies are not sent on that hop); the person is identified by the state we issued while they were signed in.
+app.get('/api/auth/salesforce/callback', wrap(async (req, res) => {
+  if (!sfauth.perUserEnabled()) return res.redirect('/?sf_error=off');
+  try {
+    const r = await sfauth.finishConnect(req);
+    audit({ action: 'sf-connected', user: r.user, sfUser: r.label });
+    res.redirect('/?sf=connected');
+  } catch (e) { audit({ action: 'sf-connect-failed', error: e.message }); res.redirect(`/?sf_error=failed&sf_msg=${encodeURIComponent(e.message)}`); }
+}));
 app.post('/api/auth/logout', (req, res) => { if (req.user) audit({ action: 'auth-logout', user: req.user.username }); auth.endSession(req.sessionToken); auth.clearCookie(res); res.json({ ok: true }); });
 
 app.post('/api/auth/password', auth.requireUser, wrap(async (req, res) => {
@@ -79,6 +89,14 @@ app.post('/api/auth/password', auth.requireUser, wrap(async (req, res) => {
 
 // everything below needs a signed-in user (and a changed temporary password)
 app.use('/api', auth.requireUser, (req, res, next) => (req.user.mustChange ? res.status(403).json({ error: 'Set a new password first.', code: 'mustChange' }) : next()));
+
+// From here on every Salesforce call runs as the signed-in person (when per-user login is on).
+app.use('/api', (req, _res, next) => sf.withUser(req.user.username, next));
+app.post('/api/salesforce/connect', wrap(async (req, res) => {
+  if (!sfauth.perUserEnabled()) return res.status(400).json({ error: 'Per-user Salesforce login is not set up on this server.' });
+  res.json({ url: sfauth.startConnect(req, req.user.username) });
+}));
+app.delete('/api/salesforce', wrap(async (req, res) => { sfauth.disconnect(req.user.username); audit({ action: 'sf-disconnected', user: req.user.username }); res.json({ ok: true }); }));
 
 // ---- user management (admins) ----
 app.get('/api/users', auth.requireAdmin, (_req, res) => res.json(auth.listUsers()));
@@ -103,12 +121,12 @@ fs.mkdirSync(boards, { recursive: true });
 const boardFile = (id) => path.join(boards, `${id.replace(/[^\w-]/g, '')}.json`);
 let sfOk = null; // null = unknown, true/false after the last attempt
 let sfCheckedAt = 0; // a failed check is retried after 30s so a temporary CLI hiccup doesn't pin us to demo mode
-const useDemo = () => process.env.DEMO === '1' || sfOk === false;
+const useDemo = () => process.env.DEMO === '1' || (!sfauth.perUserEnabled() && sfOk === false);
 
 app.get('/api/status', wrap(async (req, res) => {
-  if (process.env.DEMO !== '1' && (sfOk === null || (sfOk === false && Date.now() - sfCheckedAt > 30_000))) { sfCheckedAt = Date.now(); try { sf.getConn(); sfOk = true; } catch (e) { sfOk = false; console.error('Salesforce unavailable, using demo data:', (e.stderr?.toString() || e.message).slice(0, 500)); } }
+  if (process.env.DEMO !== '1' && !sfauth.perUserEnabled() && (sfOk === null || (sfOk === false && Date.now() - sfCheckedAt > 30_000))) { sfCheckedAt = Date.now(); try { sf.getConn(); sfOk = true; } catch (e) { sfOk = false; console.error('Salesforce unavailable, using demo data:', (e.stderr?.toString() || e.message).slice(0, 500)); } }
   const perm = permissions(req);
-  res.json({ demo: useDemo(), org: process.env.SF_ORG || 'prod', me: perm.email, admin: perm.admin, writer: perm.writer, switchOn: perm.switchOn, canWrite: perm.canWrite && !useDemo(), enrichment: creds.credStatus(perm.email) });
+  res.json({ demo: useDemo(), org: process.env.SF_ORG || 'prod', me: perm.email, admin: perm.admin, writer: perm.writer, switchOn: perm.switchOn, canWrite: perm.canWrite && !useDemo() && (!sfauth.perUserEnabled() || sfauth.status(perm.email).connected), sfLogin: sfauth.perUserEnabled() ? sfauth.status(perm.email) : null, enrichment: creds.credStatus(perm.email) });
 }));
 
 app.get('/api/accounts', wrap(async (req, res) => {
@@ -216,7 +234,7 @@ app.post('/api/push', wrap(async (req, res) => {
   if (!perm.switchOn) return res.status(403).json({ error: 'Writes to Salesforce are switched off (ALLOW_WRITE=1 to enable)' });
   if (!perm.writer) return res.status(403).json({ error: 'You do not have permission to update Salesforce — your changes stay on the board' });
   const result = await sf.updateContacts(req.body.changes);
-  audit({ user: perm.email, org: process.env.SF_ORG || 'prod', changes: req.body.changes, failed: result.filter((r) => !r.success).length });
+  audit({ user: perm.email, sfUser: sfauth.perUserEnabled() ? sfauth.status(perm.email).label : undefined, org: process.env.SF_ORG || 'prod', changes: req.body.changes, failed: result.filter((r) => !r.success).length });
   res.json(result);
 }));
 
@@ -224,7 +242,7 @@ const dist = path.join(root, '../dist');
 if (fs.existsSync(dist)) { app.use(express.static(dist)); app.use((_q, r) => r.sendFile(path.join(dist, 'index.html'))); }
 const HOST = process.env.HOST || '127.0.0.1', PORT = +(process.env.PORT || 8787);
 app.listen(PORT, HOST, () => {
-  if (process.env.DEMO !== '1') setTimeout(() => sf.warmAccountIndex(), 1500); // account names for instant search
+  if (process.env.DEMO !== '1' && !sfauth.perUserEnabled()) setTimeout(() => sf.warmAccountIndex(), 1500); // account names for instant search
   console.log(`API on http://${HOST === '127.0.0.1' ? 'localhost' : HOST}:${PORT}`);
   if (!auth.hasUsers()) console.log(`No accounts yet — open the app and create the first one.${HOST !== '127.0.0.1' ? ` Setup code (needed from other machines): ${auth.setupCode}` : ''}`);
   if (HOST !== '127.0.0.1') console.log('Listening beyond this computer: put the app behind HTTPS before real use.');

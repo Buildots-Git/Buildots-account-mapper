@@ -4,13 +4,14 @@
   "description": "Miro-style stakeholder map for Salesforce accounts",
   "main": "index.js",
   "scripts": {
-    "test": "npm run test:auth && node scripts/share-test.mjs /tmp/account-mapper-sharetest && npm run test:sso",
+    "test": "npm run test:auth && node scripts/share-test.mjs /tmp/account-mapper-sharetest && npm run test:sso && npm run test:sf",
     "dev": "concurrently -n web,api \"vite\" \"node server/index.js\"",
     "start": "node server/index.js",
     "build": "vite build",
     "test:auth": "node scripts/auth-test.mjs /tmp/account-mapper-authtest",
     "serve": "vite build && node server/index.js",
-    "test:sso": "node scripts/sso-test.mjs /tmp/am-sso-test"
+    "test:sso": "node scripts/sso-test.mjs /tmp/am-sso-test",
+    "test:sf": "node scripts/sf-oauth-test.mjs /tmp/am-sf-test"
   },
   "keywords": [],
   "author": "",

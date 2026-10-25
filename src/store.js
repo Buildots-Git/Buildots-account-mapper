@@ -5,6 +5,7 @@ const CSRF = { 'X-Requested-With': 'account-mapper' };
 export const api = (p, o = {}) => fetch(`/api${p}`, { ...o, headers: { ...CSRF, ...(o.headers || {}) } }).then(async (r) => {
   const j = await r.json().catch(() => null);
   if (r.status === 401 && j?.code === 'auth' && !p.startsWith('/auth/')) useStore.getState().sessionExpired();
+  if (r.status === 409 && j?.code === 'sf-connect') { useStore.setState({ sfNotice: j.error }); useStore.getState().refreshStatus().catch(() => {}); }
   if (!r.ok) throw new Error(j?.error || r.statusText);
   return j;
 });
@@ -36,7 +37,7 @@ const DEFAULT_REF = { dataUrl: null, embedUrl: null, name: null, opacity: 0.9, v
 
 export const useStore = create((set, get) => ({
   theme: readTheme(), _sys: 0,
-  auth: { checked: false, setupNeeded: false, setupCodeRequired: false, user: null, notice: null }, loadingName: null, boardRev: 0, conflict: null, review: null, cardLayout: DEFAULT_LAYOUT, noteStyle: readNoteStyle(), items: [], tool: 'select', openPin: null, freshItem: null, recent: [], status: null, accounts: [], account: null, data: null, loading: false, error: null, fieldCatalog: [],
+  auth: { checked: false, setupNeeded: false, setupCodeRequired: false, user: null, notice: null }, loadingName: null, boardRev: 0, conflict: null, review: null, cardLayout: DEFAULT_LAYOUT, noteStyle: readNoteStyle(), items: [], tool: 'select', openPin: null, freshItem: null, recent: [], status: null, sfNotice: null, accounts: [], account: null, data: null, loading: false, error: null, fieldCatalog: [],
   // board state, persisted per account
   overrides: {}, // contactId -> { reportsTo, manual, region, role, es, enterprise, title, hidden, fields }
   positions: {}, extras: [], reference: DEFAULT_REF, accountNotes: '', toast: null, comments: {}, // comments: personId | '__board' -> [{ id, author, at, text }]
@@ -50,7 +51,9 @@ export const useStore = create((set, get) => ({
   // ---- sign-in ----
   async initAuth() {
     try { const a = await api('/auth/state'); const q = new URLSearchParams(location.search); const err = q.get('sso_error');
-      if (err) history.replaceState(null, '', location.pathname);
+      const sfErr = q.get('sf_error'), sfOk = q.get('sf') === 'connected';
+      if (err || sfErr || sfOk) history.replaceState(null, '', location.pathname);
+      if (sfErr || sfOk) set({ sfNotice: sfOk ? 'Salesforce connected.' : (q.get('sf_msg') || 'Could not connect Salesforce.') });
       set({ auth: { checked: true, setupNeeded: a.setupNeeded, setupCodeRequired: a.setupCodeRequired, sso: a.sso || null, user: a.user,
         notice: err ? (q.get('sso_msg') || (err === 'off' ? 'Single sign-on is not set up on this server.' : err === 'config' ? 'Single sign-on is misconfigured. Ask an admin.' : 'Sign-in failed. Try again.')) : null } }); }
     catch { set({ auth: { checked: true, setupNeeded: false, setupCodeRequired: false, user: null, notice: 'Cannot reach the server. Is it running?' } }); }
@@ -65,6 +68,8 @@ export const useStore = create((set, get) => ({
   async changePassword(current, next) { await api('/auth/password', jsonOpts('POST', { current, next })); set((s) => ({ auth: { ...s.auth, user: { ...s.auth.user, mustChange: false } } })); },
 
   async init() { set({ status: await api('/status') }); await get().search(''); },
+  async connectSalesforce() { const r = await api('/salesforce/connect', jsonOpts('POST', {})); location.href = r.url; },
+  async disconnectSalesforce() { await api('/salesforce', { method: 'DELETE' }); set({ account: null, data: null, accounts: [], recent: [] }); await get().refreshStatus(); },
   async refreshStatus() { set({ status: await api('/status') }); },
   async search(q) {
     const n = ++searchSeq; // a slow answer to an older search must not overwrite the newer one
