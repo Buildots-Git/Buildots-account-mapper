@@ -293,14 +293,18 @@ export const useStore = create((set, get) => ({
     });
   },
 
+  /** Edits that differ from what Salesforce holds, per contact: {Id, ReportsToId?, Region__c?, Contact_Role__c?, ES_Expansion_Status__c?}. */
   pendingChanges() {
     const { overrides, data } = get();
-    return Object.entries(overrides).filter(([id]) => data.contacts.some((c) => c.Id === id)).map(([Id, o]) => {
-      const f = { Id };
-      if ('reportsTo' in o && o.manual) f.ReportsToId = o.reportsTo;
-      if (o.region !== undefined) f.Region__c = o.region;
-      if (o.role !== undefined) f.Contact_Role__c = o.role;
-      if (o.es !== undefined) f.ES_Expansion_Status__c = o.es;
+    if (!data) return [];
+    const orig = new Map(data.contacts.map((c) => [c.Id, c]));
+    const diff = (a, b) => (a ?? null) !== (b ?? null);
+    return Object.entries(overrides).filter(([id]) => orig.has(id)).map(([Id, o]) => {
+      const c = orig.get(Id), f = { Id };
+      if ('reportsTo' in o && o.manual && diff(o.reportsTo, c.ReportsToId)) f.ReportsToId = o.reportsTo;
+      if (o.region !== undefined && diff(o.region, c.Region__c)) f.Region__c = o.region;
+      if (o.role !== undefined && diff(o.role, c.Contact_Role__c)) f.Contact_Role__c = o.role;
+      if (o.es !== undefined && diff(o.es, c.ES_Expansion_Status__c)) f.ES_Expansion_Status__c = o.es;
       return f;
     }).filter((f) => Object.keys(f).length > 1);
   },

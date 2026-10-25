@@ -64,11 +64,13 @@ function LinkEdge({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPo
 }
 const edgeTypes = { link: LinkEdge };
 
+const PEND_LABEL = [['ReportsToId', 'Reports To'], ['Region__c', 'Region'], ['Contact_Role__c', 'Role'], ['ES_Expansion_Status__c', 'ES status']];
 export function useGraph() {
   const { data, extras, overrides, positions, showFields, showRelated, hideUntitled, fieldCatalog, comments, psearch: search, highlight, items, freshItem, cardLayout, collapsed, collapseAll } = useStore();
   const labels = useMemo(() => Object.fromEntries(fieldCatalog.map((f) => [f.name, f.label])), [fieldCatalog]);
   return useMemo(() => {
     const everyone = useStore.getState().people();
+    const pend = new Map(useStore.getState().pendingChanges().map((f) => [f.Id, PEND_LABEL.filter(([k]) => k in f).map(([, l]) => l)]));
     const searching = filtersActive(search);
     const hit = (p) => matchesSearch(p, search);
     // With "only show matches" the matching people stay, plus the managers above them so you still see where they sit.
@@ -154,7 +156,7 @@ export function useGraph() {
       const par = parentOf(p); const r = region(p); const pr = par ? region(byId[par]) : null;
       const { x, y } = positions[p.Id] || auto[p.Id];
       return { id: p.Id, type: 'contact', deletable: false, position: { x, y },
-        data: { branch: kids[p.Id] ? { n: desc(p.Id), folded: isFolded(p.Id) } : null, hl: highlight, layout: cardLayout, acc: data.account.Id, labels, p, color: regionColor(r, regions), showFields, counts: { ...counts(p.Id), notes: (comments[p.Id] || []).length }, notesList: comments[p.Id] || [], branchLabel: r && r !== pr ? r.toUpperCase() : null, dim: searching && !hit(p), hit: searching && hit(p) } };
+        data: { branch: kids[p.Id] ? { n: desc(p.Id), folded: isFolded(p.Id) } : null, hl: highlight, layout: cardLayout, acc: data.account.Id, labels, p, color: regionColor(r, regions), showFields, counts: { ...counts(p.Id), notes: (comments[p.Id] || []).length }, notesList: comments[p.Id] || [], branchLabel: r && r !== pr ? r.toUpperCase() : null, dim: searching && !hit(p), hit: searching && hit(p), pend: pend.get(p.Id) || null } };
     });
     const edges = people.filter(parentOf).map((p) => ({
       id: `e-${parentOf(p)}-${p.Id}`, source: parentOf(p), target: p.Id, type: 'link',

@@ -32,7 +32,7 @@ const DEF_LAYOUT = { target: true, office: true, comments: true, actions: true, 
 
 /** The card's content. Used on the board (wrapped with connection handles) and, without them, as the live preview in Customize. */
 export function CardBody({ data, selected, children }) {
-  const { p, color, showFields, counts, branchLabel, labels = {}, dim, hit, drop, notesList = [], hl = DEF_HL, layout = DEF_LAYOUT } = data;
+  const { p, color, showFields, counts, branchLabel, labels = {}, dim, hit, drop, pend, notesList = [], hl = DEF_HL, layout = DEF_LAYOUT } = data;
   const L = { ...DEF_LAYOUT, ...layout };
   const ecm = hl.ecm && !!p.Enterprise_Coalition_Member__c;
   const role = hl.role && p.Contact_Role__c, es = hl.es && p.ES_Expansion_Status__c;
@@ -40,10 +40,11 @@ export function CardBody({ data, selected, children }) {
   const extras = showFields.filter((k) => k !== 'Title' && val(p, k));
   const showBadges = counts.opps > 0 || counts.leads > 0 || counts.cs > 0 || (L.comments && counts.notes > 0);
   return (
-    <div className={`cnode${selected ? ' sel' : ''}${p.external ? ' ext' : ''}${dim ? ' dim' : ''}${hit ? ' hit' : ''}${drop ? ' drop' : ''}${ecm ? ' ecm' : ''}${p.cstatus ? ` st st-${p.cstatus}` : ''}`}
+    <div className={`cnode${selected ? ' sel' : ''}${p.external ? ' ext' : ''}${dim ? ' dim' : ''}${hit ? ' hit' : ''}${drop ? ' drop' : ''}${ecm ? ' ecm' : ''}${p.cstatus ? ` st st-${p.cstatus}` : ''}${pend ? ' pend' : ''}`}
       style={{ '--accent': color || '#cbd2dc', '--fs': L.font, width: L.width }}>
       {children}
       {data.branch && <button className={`fold nodrag${data.branch.folded ? ' on' : ''}`} title={data.branch.folded ? `Show ${data.branch.n} people in this team` : 'Hide this team'} onClick={(e) => { e.stopPropagation(); useStore.getState().toggleBranch(p.Id, data.branch.folded); }}>{data.branch.folded ? `+${data.branch.n}` : '−'}</button>}
+      {pend && <span className="pend-tag" title={`Changed here, not in Salesforce yet: ${pend.join(', ')}. Use ⋯ → Push changes to Salesforce.`}>↑ Not in Salesforce yet · {pend.join(', ')}</span>}
       {ecm && <span className="ecm-star" title="Enterprise Coalition Member (ECM)">★</span>}
       {L.office && branchLabel && <div className="branch" style={{ color }}>{branchLabel}</div>}
       <div className="name">

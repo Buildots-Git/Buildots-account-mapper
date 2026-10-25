@@ -15,6 +15,7 @@ export default function GridView() {
   const store = useStore();
   const { patch, select, selected, psearch: search, gridCols, hideUntitled, setVisible } = store;
   const people = useMemo(() => store.people(), [store.data, store.extras, store.overrides]);
+  const pend = useMemo(() => new Set(store.pendingChanges().map((f) => f.Id)), [store.data, store.overrides]);
   const [menu, setMenu] = useState(false);
   const family = (store.data?.family?.length || 0) > 1;
   const cols = COLS.filter((c) => (c.k === 'account' ? family : gridCols.includes(c.k)));
@@ -75,7 +76,7 @@ export default function GridView() {
           <tbody>
             {rows.map((p) => (
               <tr key={p.Id} className={`${p.Id === selected ? 'sel' : ''}${onBoard(p, hideUntitled) ? '' : ' off'}`} onClick={() => select(p.Id)}>
-                <td className="sticky" style={{ paddingLeft: 8 + Math.min(depth(p), 5) * 10 }}><b className="ell" title={p.Name}>{p.Name}</b>{p.manual && <span className="dot-manual" title="Reporting line set by hand" />}</td>
+                <td className="sticky" style={{ paddingLeft: 8 + Math.min(depth(p), 5) * 10 }}><b className="ell" title={p.Name}>{p.Name}</b>{p.manual && <span className="dot-manual" title="Reporting line set by hand" />}{pend.has(p.Id) && <span className="pend-chip" title="Changed here, not in Salesforce yet — use ⋯ → Push changes to Salesforce">↑ unpushed</span>}</td>
                 {cols.map((c) => <td key={c.k}>{cell(c, p)}</td>)}
               </tr>
             ))}

@@ -63,6 +63,7 @@ export default function App() {
   if (!s.status) return <div className="center muted">Loading…</div>;
   if (!s.account) return <>{s.status.demo && <div className="banner">Salesforce not reachable — showing demo data only.</div>}{s.error && <div className="banner err">{s.error}</div>}{s.loading ? <Loading name={s.loadingName} full /> : <Home />}</>;
 
+  const pendingN = s.pendingChanges().length;
   const close = () => setMenu(null);
   const suggestColors = () => {
     const sg = s.statusSuggestions(); const n = sg.green.length + sg.orange.length + sg.yellow.length;
@@ -102,6 +103,7 @@ export default function App() {
           <button className={s.view === 'grid' ? 'on' : ''} onClick={() => s.setShow('view', 'grid')}>Grid</button>
         </div>
         <span className="grow" />
+        {pendingN > 0 && <button className="btn push-pending" disabled={!s.status.canWrite} title={s.status.canWrite ? `${pendingN} contact(s) changed here but not in Salesforce yet. Click to review and push.` : !s.status.switchOn ? 'Writes are switched off (ALLOW_WRITE=1)' : 'These changes stay on the board — you don’t have permission to update Salesforce'} onClick={push}>{s.status.canWrite ? `↑ Push ${pendingN} change${pendingN > 1 ? 's' : ''} to Salesforce` : `${pendingN} change${pendingN > 1 ? 's' : ''} · board only`}</button>}
         <button className="btn" title="Re-infer reporting lines from titles. Manual edits and Salesforce Reports-To are kept." onClick={() => { s.autoBuild(); say('Hierarchy updated from titles — your manual changes were kept (⌘Z to undo)'); }}>✨ Auto-build from titles</button>
         <div className="rel-menu">
           <button className="btn ghost" onClick={() => setMenu(menu === 'more' ? null : 'more')}>⋯</button>
