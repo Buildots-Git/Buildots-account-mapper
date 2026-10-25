@@ -100,7 +100,8 @@ table.grid{table-layout:fixed;border:0;border-radius:0;font-size:13px}.grid td,.
 
 /* contact status fills (the team's KEY) */
 .cnode.st{color:#1b2330;--mut:#3d4a5c;--line:rgba(0,0,0,.18);--bg:rgba(255,255,255,.55)}
-.cnode.st-green{background:#86d39a}.cnode.st-orange{background:#f0b783}.cnode.st-yellow{background:#fdf5b8}
+.cnode.st-green{background:#86d39a;border-color:#2f9e4f;box-shadow:0 0 0 2px #2f9e4f}.cnode.st-orange{background:#f0b783;border-color:#d9731a;box-shadow:0 0 0 2px #d9731a}.cnode.st-yellow{background:#fdf5b8;border-color:#e0b400;box-shadow:0 0 0 2px #e0b400}
+.cnode.st{border-top-color:var(--accent)}
 .cnode.st .pill.role,.cnode.st .b{color:#2b3647;background:rgba(255,255,255,.55)}
 .cnode.drop{outline:3px dashed var(--brand);outline-offset:3px;transform:scale(1.03)}
 .key{display:flex;flex-direction:column;gap:5px;margin-top:4px}.key .k{display:flex;gap:8px;align-items:flex-start;font-size:12px}.key .k i{flex:0 0 14px;height:14px;border-radius:3px;border:1px solid rgba(0,0,0,.25);margin-top:2px}

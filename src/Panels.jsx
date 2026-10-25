@@ -5,7 +5,7 @@ import { tileImage } from './miroImport.js';
 import { buildRows, cardsFromMiro } from './importReview.js';
 import { colorToStatus } from './hierarchy.js';
 import { onBoard, matchesSearch } from './search.js';
-import { ago, who } from './format.js';
+import { ago, who, fmtMoney, fmtDate } from './format.js';
 import { SIGN_IN } from './links.js';
 import { CardBody } from './ContactNode.jsx';
 import { PRESETS } from './store.js';
