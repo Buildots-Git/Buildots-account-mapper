@@ -78,7 +78,9 @@ export default function App() {
     for (const k of ['green', 'orange', 'yellow']) if (sg[k].length) s.setStatus(sg[k], k);
     say(`Colored ${n} people from Salesforce`);
   };
+  const whyNoWrite = !s.status.switchOn ? 'Pushing to Salesforce is switched off on this server (ALLOW_WRITE is not set to 1 in .env). Your changes stay on the board.' : !s.status.writer ? 'You don’t have permission to update Salesforce. Ask an admin to turn it on under profile menu → Users. Your changes stay on the board.' : 'Connect your Salesforce account first (profile menu).';
   const push = async () => {
+    if (!s.status.canWrite) { say(whyNoWrite); return; }
     const ch = s.pendingChanges();
     if (!ch.length) { say('Nothing to push — no changes waiting'); return; }
     const kinds = { ReportsToId: 'Reports To', Region__c: 'Region', Contact_Role__c: 'Role', ES_Expansion_Status__c: 'ES status' };
@@ -104,7 +106,7 @@ export default function App() {
           <button className={s.view === 'grid' ? 'on' : ''} onClick={() => s.setShow('view', 'grid')}>Grid</button>
         </div>
         <span className="grow" />
-        {pendingN > 0 && <button className="btn push-pending" disabled={!s.status.canWrite} title={s.status.canWrite ? `${pendingN} contact(s) changed here but not in Salesforce yet. Click to review and push.` : !s.status.switchOn ? 'Writes are switched off (ALLOW_WRITE=1)' : 'These changes stay on the board — you don’t have permission to update Salesforce'} onClick={push}>{s.status.canWrite ? `↑ Push ${pendingN} change${pendingN > 1 ? 's' : ''} to Salesforce` : `${pendingN} change${pendingN > 1 ? 's' : ''} · board only`}</button>}
+        {pendingN > 0 && <button className="btn push-pending" title={s.status.canWrite ? `${pendingN} contact(s) changed here but not in Salesforce yet. Click to review and push.` : 'Click to see why these can’t be pushed'} onClick={push}>{s.status.canWrite ? `↑ Push ${pendingN} change${pendingN > 1 ? 's' : ''} to Salesforce` : `${pendingN} change${pendingN > 1 ? 's' : ''} · board only`}</button>}
         <button className="btn" title="Re-infer reporting lines from titles. Manual edits and Salesforce Reports-To are kept." onClick={() => { s.autoBuild(); say('Hierarchy updated from titles — your manual changes were kept (⌘Z to undo)'); }}>✨ Auto-build from titles</button>
         <div className="rel-menu">
           <button className="btn ghost" onClick={() => setMenu(menu === 'more' ? null : 'more')}>⋯</button>
@@ -113,7 +115,7 @@ export default function App() {
             <button className="item" onClick={() => { s.resetLayout(); setMenu(null); }}>Reset card positions</button>
             <button className="item" onClick={() => { setMenu(null); suggestColors(); }}>Color contacts from Salesforce…</button>
             <button className="item" onClick={() => { setMenu(null); { const all = s.people().filter((p) => p.cstatus).map((p) => p.Id); if (!all.length) { say('No cards are colored'); } else if (confirm(`Clear the Contact status color from ${all.length} card(s) on this board?\n\nBoard only — nothing in Salesforce changes. You can undo with ⌘Z.`)) { s.setStatus(all, null); say(`Cleared ${all.length} color(s) — Salesforce unchanged (⌘Z to undo)`); } } }}>Clear all colors (board only)</button>
-            <button className="item" disabled={!s.status.canWrite} title={s.status.canWrite ? '' : !s.status.switchOn ? 'Writes are switched off (ALLOW_WRITE=1)' : 'You don’t have permission to update Salesforce — ask an admin to turn it on under your profile menu → Users'} onClick={() => { setMenu(null); push(); }}>Push changes to Salesforce…</button>
+            <button className="item" onClick={() => { setMenu(null); push(); }}>Push changes to Salesforce…</button>
           </div>}
         </div>
         <button className="btn ghost" title="Account details, research notes, opportunities and projects" onClick={() => setMenu(menu === 'account' ? null : 'account')}>Account info</button>
