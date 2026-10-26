@@ -1,6 +1,6 @@
 import React from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { ES_COLORS } from './hierarchy.js';
+import { ES_COLORS, heatColor } from './hierarchy.js';
 import { useStore } from './store.js';
 import { ago, who } from './format.js';
 import { SIGN_IN } from './links.js';
@@ -46,7 +46,7 @@ export function CardBody({ data, selected, children }) {
       {data.branch && <button className={`fold nodrag${data.branch.folded ? ' on' : ''}`} title={data.branch.folded ? `Show ${data.branch.n} people in this team` : 'Hide this team'} onClick={(e) => { e.stopPropagation(); useStore.getState().toggleBranch(p.Id, data.branch.folded); }}>{data.branch.folded ? `+${data.branch.n}` : '−'}</button>}
       {pend && <span className="pend-tag" title={`Changed here, not in Salesforce yet: ${pend.join(', ')}. Use ⋯ → Push changes to Salesforce.`}>↑ Not in Salesforce yet · {pend.join(', ')}</span>}
       {ecm && <span className="ecm-star" title="Enterprise Coalition Member (ECM)">★</span>}
-      {L.office && branchLabel && <div className="branch" style={{ color }}>{branchLabel}</div>}
+      {L.office && branchLabel && <div className="branch" style={{ color: data.regionTint || color }}>{branchLabel}</div>}
       <div className="name">
         {p.Name}
       </div>
@@ -54,7 +54,7 @@ export function CardBody({ data, selected, children }) {
       {(role || es) && (
         <div className="pills">
           {role && <span className="pill role hl" title="Contact role">{p.Contact_Role__c}</span>}
-          {es && <span className="pill es hl" title="ES / ECM status" style={{ color: fg, background: bg, borderColor: fg }}><b style={{ background: fg }} />ES · {p.ES_Expansion_Status__c}</span>}
+          {es && <span className="pill es hl" title="ES / ECM status" style={{ color: fg, background: bg, borderColor: heatColor(p.ES_Expansion_Status__c) }}><b style={{ background: heatColor(p.ES_Expansion_Status__c) }} />ES · {p.ES_Expansion_Status__c}</span>}
         </div>
       )}
       {extras.map((k) => <div key={k} className="meta">{L.labels && <span>{labels[k] || k}</span>}{val(p, k).replace(/^https?:\/\/(www\.)?/, '').slice(0, 140)}</div>)}

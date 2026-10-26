@@ -257,3 +257,4 @@ main.tool-note .react-flow__pane,main.tool-text .react-flow__pane,main.tool-comm
 .btn.push-pending{background:#e5484d;border-color:#e5484d;color:#fff;font-weight:700}.btn.push-pending:hover{background:#cf3a3f}.btn.push-pending:disabled{opacity:.85;cursor:help}
 .pend-chip{margin-left:6px;background:#e5484d;color:#fff;font:700 10px system-ui;padding:1px 6px;border-radius:8px;white-space:nowrap}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.12)}
+.cnode{border-top-width:5px}.cnode.ecm,.cnode.st,.cnode.st-green,.cnode.st-orange,.cnode.st-yellow{border-top-color:var(--accent)}

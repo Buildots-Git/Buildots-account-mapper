@@ -88,6 +88,14 @@ export const ES_COLORS = {
   Targeted: ['#6b7280', '#eef0f3'], Aware: ['#2c5fa8', '#e6eefa'], Involved: ['#2f7d4f', '#e4f3ea'],
   Advocate: ['#7b3fb0', '#f1e8fa'], Buyer: ['#b0621c', '#fbeee0'], Won: ['#1d6b3a', '#d9f0e1'],
 };
+// Board colour = ES Status, on a cool-to-hot scale (agreed with Erez: region was the least useful thing to colour by).
+// Edit this map to change which status gets which colour. People with no ES status, or one not listed here, stay neutral grey.
+export const ES_NEUTRAL = '#c3c9d3';
+export const ES_HEAT = {
+  Targeted: '#cfd4dc', Aware: '#f6d365', Involved: '#f9a03f', Advocate: '#f26a3d', Buyer: '#e0342b', Won: '#a50f15',
+  Blocked: '#1f2937', // not a Salesforce value yet; shown dark if it is added
+};
+export const heatColor = (es) => ES_HEAT[es] || ES_NEUTRAL;
 export const ROLES = ['Champion', 'Decision Maker', 'Executive Sponsor', 'Economic Buyer', 'Technical Buyer', 'Influencer', 'BIM Manager', 'Other'];
 
 // The "KEY" on the team's Miro board: how to treat each contact.

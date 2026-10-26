@@ -4,7 +4,7 @@ import AccountNode from './AccountNode.jsx';
 import ContactNode from './ContactNode.jsx';
 import { NoteNode, TextNode, PinNode } from './ItemNodes.jsx';
 import { useStore, effectiveTheme } from './store.js';
-import { regionOf, regionColor } from './hierarchy.js';
+import { regionOf, regionColor, heatColor } from './hierarchy.js';
 import { matchesSearch, onBoard, filtersActive } from './search.js';
 
 const W = 220, H = 120;
@@ -156,11 +156,11 @@ export function useGraph() {
       const par = parentOf(p); const r = region(p); const pr = par ? region(byId[par]) : null;
       const { x, y } = positions[p.Id] || auto[p.Id];
       return { id: p.Id, type: 'contact', deletable: false, position: { x, y },
-        data: { branch: kids[p.Id] ? { n: desc(p.Id), folded: isFolded(p.Id) } : null, hl: highlight, layout: cardLayout, acc: data.account.Id, labels, p, color: regionColor(r, regions), showFields, counts: { ...counts(p.Id), notes: (comments[p.Id] || []).length }, notesList: comments[p.Id] || [], branchLabel: r && r !== pr ? r.toUpperCase() : null, dim: searching && !hit(p), hit: searching && hit(p), pend: pend.get(p.Id) || null } };
+        data: { branch: kids[p.Id] ? { n: desc(p.Id), folded: isFolded(p.Id) } : null, hl: highlight, layout: cardLayout, acc: data.account.Id, labels, p, color: heatColor(p.ES_Expansion_Status__c), regionTint: regionColor(r, regions), showFields, counts: { ...counts(p.Id), notes: (comments[p.Id] || []).length }, notesList: comments[p.Id] || [], branchLabel: r && r !== pr ? r.toUpperCase() : null, dim: searching && !hit(p), hit: searching && hit(p), pend: pend.get(p.Id) || null } };
     });
     const edges = people.filter(parentOf).map((p) => ({
       id: `e-${parentOf(p)}-${p.Id}`, source: parentOf(p), target: p.Id, type: 'link',
-      style: { stroke: regionColor(region(p), regions) || '#c3c9d3', strokeWidth: 1.6 },
+      style: { stroke: heatColor(p.ES_Expansion_Status__c), strokeWidth: 1.8 },
     }));
     const itemNodes = items.map((it) => ({
       id: it.id, type: it.type === 'comment' ? 'pin' : it.type, position: { x: it.x, y: it.y }, zIndex: 5, deletable: true,
