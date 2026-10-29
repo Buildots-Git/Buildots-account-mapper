@@ -22,7 +22,7 @@ start_tunnel() {
   ./tools/cloudflared tunnel --url "http://localhost:$PORT" --no-autoupdate --protocol http2 >> "$LOG" 2>&1 &
   PID=$!; caffeinate -i -w "$PID" >/dev/null 2>&1 &
   for _ in $(seq 1 30); do
-    URL=$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' "$LOG" | head -1); [ -n "$URL" ] && break; sleep 1
+    URL=$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' "$LOG" | grep -v '^https://api\.' | head -1); [ -n "$URL" ] && break; sleep 1
   done
   if [ -z "$URL" ]; then echo "$(date +%T) could not start a tunnel yet, will retry"; return 1; fi
   echo "$URL" > data/tunnel-url.txt; printf '%s' "$URL" | pbcopy
