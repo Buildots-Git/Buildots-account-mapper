@@ -290,14 +290,22 @@ function Connect({ provider, fields, hint }) {
   const drop = async () => { await api(`/credentials/${provider}`, { method: 'DELETE' }); await refreshStatus(); };
   if (st?.connected && !open) return <div className="row"><span className="ok">● Connected{st.label ? ` as ${st.label}` : ''}</span><span>{SIGN_IN[provider] && <a className="link" href={SIGN_IN[provider].url} target="_blank" rel="noopener noreferrer">Open {SIGN_IN[provider].label} ↗</a>}{' · '}<button className="link" onClick={drop}>Disconnect</button></span></div>;
   const si = SIGN_IN[provider];
+  const form = <>
+    <p className="muted sm">{hint}</p>
+    {fields.map(([k, label, type]) => <F key={k} label={label}><input type={type || 'text'} autoComplete="off" value={v[k] || ''} onChange={(e) => setV({ ...v, [k]: e.target.value })} /></F>)}
+    {err && <div className="warn">{err}</div>}
+    <button className="btn sm" disabled={fields.some(([k]) => !v[k])} onClick={save}>Save securely</button>
+    <div className="muted sm">Stored encrypted on this machine, tied to your user. It is never sent back to the browser.</div>
+  </>;
+  if (!si) return <div className="connect">{form}</div>;
   return (
     <div className="connect">
-      {si && <a className="btn ghost sm signin-link" href={si.url} target="_blank" rel="noopener noreferrer">Sign in to {si.label} ↗</a>}
-      <p className="muted sm">{hint}</p>
-      {fields.map(([k, label, type]) => <F key={k} label={label}><input type={type || 'text'} autoComplete="off" value={v[k] || ''} onChange={(e) => setV({ ...v, [k]: e.target.value })} /></F>)}
-      {err && <div className="warn">{err}</div>}
-      <button className="btn sm" disabled={fields.some(([k]) => !v[k])} onClick={save}>Save securely</button>
-      <div className="muted sm">Stored encrypted on this machine, tied to your user. It is never sent back to the browser.</div>
+      <a className="btn sm signin-link" href={si.sso || si.url} target="_blank" rel="noopener noreferrer">Sign in to {si.label} with SSO ↗</a>
+      <p className="muted sm">Opens {si.label} in a new tab so you can sign in with your company login (SSO). No password is entered here.{provider === 'zoominfo' || provider === 'lusha' ? ' Look people up in that tab; their name is copied when you use a card’s ZI / Lu button.' : ''}</p>
+      <details className="more"><summary>Want automatic lookups inside Account Mapper?</summary>
+        <p className="muted sm">That needs an API login, which SSO can’t provide. Only use this if your licence includes API access.</p>
+        {form}
+      </details>
     </div>
   );
 }
