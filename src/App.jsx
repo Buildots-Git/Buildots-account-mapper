@@ -10,6 +10,8 @@ import Home from './Home.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
 import { LoginScreen, SetupScreen, ForcedChangeScreen, UserMenu, ConnectSalesforce } from './AuthScreens.jsx';
 import ReviewModal from './ReviewModal.jsx';
+import PushReview from './PushReview.jsx';
+import CompanyContext from './CompanyContext.jsx';
 import CanvasToolbar from './CanvasToolbar.jsx';
 import { DetailPanel, EnrichPanel, FieldPicker, AddPersonPanel, ReferencePanel, ReferenceOverlay, CommentsPanel, PeoplePanel, AccountPanel } from './Panels.jsx';
 
@@ -66,27 +68,11 @@ export default function App() {
 
   const pendingN = s.pendingChanges().length;
   const close = () => setMenu(null);
-  const suggestColors = () => {
-    const sg = s.statusSuggestions(); const n = sg.green.length + sg.orange.length + sg.yellow.length;
-    if (!n) { say('Nothing to suggest — everyone who can be colored already is'); return; }
-    const msg = `Suggest colors from Salesforce for people who have none yet?\n\n` +
-      `🟢 Green (${sg.green.length}): on a CS project that is Alignment / Onboarding / Adoption / Delivery / Wrap Up\n` +
-      `🟠 Orange (${sg.orange.length}): on an open opportunity — talk first\n` +
-      `🟡 Yellow (${sg.yellow.length}): no activities, no project, no open opportunity\n\n` +
-      `People we can't tell about stay uncolored. You can change any of them, and ⌘Z undoes this.`;
-    if (!confirm(msg)) return;
-    for (const k of ['green', 'orange', 'yellow']) if (sg[k].length) s.setStatus(sg[k], k);
-    say(`Colored ${n} people from Salesforce`);
-  };
   const whyNoWrite = !s.status.switchOn ? 'Pushing to Salesforce is switched off on this server (ALLOW_WRITE is not set to 1 in .env). Your changes stay on the board.' : !s.status.writer ? 'You don’t have permission to update Salesforce. Ask an admin to turn it on under profile menu → Users. Your changes stay on the board.' : 'Connect your Salesforce account first (profile menu).';
   const push = async () => {
     if (!s.status.canWrite) { say(whyNoWrite); return; }
-    const ch = s.pendingChanges();
-    if (!ch.length) { say('Nothing to push — no changes waiting'); return; }
-    const kinds = { ReportsToId: 'Reports To', Region__c: 'Region', Contact_Role__c: 'Role', ES_Expansion_Status__c: 'ES status' };
-    const tally = Object.entries(kinds).map(([k, l]) => [l, ch.filter((f) => k in f).length]).filter(([, n]) => n).map(([l, n]) => `  • ${l}: ${n}`).join('\n');
-    if (!confirm(`This WRITES to Salesforce (not just the board).\n\n${ch.length} contact(s) will be updated:\n${tally}\n\nContinue?`)) return;
-    try { const r = await s.push(); say(r.n ? `Pushed ${r.n} contact(s)${r.failed ? `, ${r.failed} failed` : ''}` : 'Nothing to push'); } catch (e) { say(e.message); }
+    if (!s.pendingChanges().length) { say('Nothing to push — no changes waiting'); return; }
+    s.setShow('pushReview', true);
   };
   return (
     <div className="app">
@@ -104,6 +90,7 @@ export default function App() {
           <button className={s.view === 'board' ? 'on' : ''} onClick={() => s.setShow('view', 'board')}>Board</button>
           <button className={s.view === 'outline' ? 'on' : ''} onClick={() => s.setShow('view', 'outline')}>Outline</button>
           <button className={s.view === 'grid' ? 'on' : ''} onClick={() => s.setShow('view', 'grid')}>Grid</button>
+          <button className={s.view === 'context' ? 'on' : ''} title="Vision, mission, initiatives, QAP and intel for this company" onClick={() => s.setShow('view', 'context')}>Company</button>
         </div>
         <span className="grow" />
         {pendingN > 0 && <button className="btn push-pending" title={s.status.canWrite ? `${pendingN} contact(s) changed here but not in Salesforce yet. Click to review and push.` : 'Click to see why these can’t be pushed'} onClick={push}>{s.status.canWrite ? `↑ Push ${pendingN} change${pendingN > 1 ? 's' : ''} to Salesforce` : `${pendingN} change${pendingN > 1 ? 's' : ''} · board only`}</button>}
@@ -113,8 +100,6 @@ export default function App() {
           {menu === 'more' && <div className="pop" onMouseLeave={() => setMenu(null)}>
             <button className="item" onClick={() => { setMenu(null); if (confirm('Discard every manual and Salesforce reporting line on this board and rebuild purely from titles? (⌘Z undoes this)')) { s.autoBuild({ overwrite: true }); say('Rebuilt from titles only'); } }}>Rebuild from scratch (ignore existing links)</button>
             <button className="item" onClick={() => { s.resetLayout(); setMenu(null); }}>Reset card positions</button>
-            <button className="item" onClick={() => { setMenu(null); suggestColors(); }}>Color contacts from Salesforce…</button>
-            <button className="item" onClick={() => { setMenu(null); { const all = s.people().filter((p) => p.cstatus).map((p) => p.Id); if (!all.length) { say('No cards are colored'); } else if (confirm(`Clear the Contact status color from ${all.length} card(s) on this board?\n\nBoard only — nothing in Salesforce changes. You can undo with ⌘Z.`)) { s.setStatus(all, null); say(`Cleared ${all.length} color(s) — Salesforce unchanged (⌘Z to undo)`); } } }}>Clear all colors (board only)</button>
             <button className="item" onClick={() => { setMenu(null); push(); }}>Push changes to Salesforce…</button>
           </div>}
         </div>
@@ -146,11 +131,12 @@ export default function App() {
       {s.error && <div className="banner err">{s.error}</div>}
       <main className={`${s.view !== 'board' ? 'grid-mode' : ''} tool-${s.tool}`}>
         {s.loading && <Loading name={s.loadingName} />}
-        {s.view === 'board' ? <><Board /><CanvasToolbar /><Legend /><ReferenceOverlay /></> : s.view === 'outline' ? <OutlineView /> : <GridView />}
+        {s.view === 'board' ? <><Board /><CanvasToolbar /><Legend /><ReferenceOverlay /></> : s.view === 'outline' ? <OutlineView /> : s.view === 'context' ? <CompanyContext /> : <GridView />}
         {menu === 'enrich' ? <EnrichPanel onClose={close} /> : menu === 'fields' ? <FieldPicker onClose={close} />
           : menu === 'account' ? <AccountPanel onClose={close} /> : menu === 'people' ? <PeoplePanel onClose={close} /> : menu === 'comments' ? <CommentsPanel onClose={close} /> : menu === 'reference' ? <ReferencePanel onClose={close} /> : menu === 'add' ? <AddPersonPanel onClose={close} /> : <DetailPanel />}
       </main>
       <ReviewModal />
+      <PushReview />
       {(toast || s.toast) && <div className="toast">{toast || s.toast}</div>}
     </div>
   );

@@ -10,7 +10,7 @@ export const api = (p, o = {}) => fetch(`/api${p}`, { ...o, headers: { ...CSRF, 
   return j;
 });
 export const jsonOpts = (method, body) => ({ method, headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'account-mapper' }, body: JSON.stringify(body) });
-let saveTimer, fieldTimer, pending = false, saving = false, again = false, searchSeq = 0;
+let saveTimer, fieldTimer, prefTimer, pending = false, saving = false, again = false, searchSeq = 0;
 export const hasPendingSave = () => pending;
 
 // Theme: 'system' follows the OS; 'light' / 'dark' are explicit. Remembered per browser.
@@ -37,7 +37,7 @@ const DEFAULT_REF = { dataUrl: null, embedUrl: null, name: null, opacity: 0.9, v
 
 export const useStore = create((set, get) => ({
   theme: readTheme(), _sys: 0,
-  auth: { checked: false, setupNeeded: false, setupCodeRequired: false, user: null, notice: null }, loadingName: null, boardRev: 0, conflict: null, review: null, cardLayout: DEFAULT_LAYOUT, noteStyle: readNoteStyle(), items: [], tool: 'select', openPin: null, freshItem: null, recent: [], status: null, sfNotice: null, accounts: [], account: null, data: null, loading: false, error: null, fieldCatalog: [],
+  auth: { checked: false, setupNeeded: false, setupCodeRequired: false, user: null, notice: null }, loadingName: null, pushReview: false, context: {}, boardRev: 0, conflict: null, review: null, cardLayout: DEFAULT_LAYOUT, noteStyle: readNoteStyle(), items: [], tool: 'select', openPin: null, freshItem: null, recent: [], status: null, sfNotice: null, accounts: [], account: null, data: null, loading: false, error: null, fieldCatalog: [],
   // board state, persisted per account
   overrides: {}, // contactId -> { reportsTo, manual, region, role, es, enterprise, title, hidden, fields }
   positions: {}, extras: [], reference: DEFAULT_REF, accountNotes: '', toast: null, comments: {}, // comments: personId | '__board' -> [{ id, author, at, text }]
@@ -85,14 +85,15 @@ export const useStore = create((set, get) => ({
     set({ loading: true, loadingName: name || null, error: null, selected: null, past: [], future: [], collapsed: {}, collapseAll: null, psearch: { field: 'any', q: '', only: true, filters: { role: '', es: '', ecm: '', account: '', department: '', region: '', country: '', review: '' } } });
     try {
       const board = await api(`/boards/${id}`);
-      const dflt = board?.cardLayout ? null : readCardDefault(); // a board never customised starts from the user's saved default
-      const showFields = board?.showFields || dflt?.fields || ['Title'];
+      const mine = (await api('/prefs').catch(() => ({}))).card || null; // card appearance is sticky to the USER (Erez), not the board
+      const dflt = mine || (board?.cardLayout ? null : readCardDefault()); // else a board never customised starts from the user's saved default
+      const showFields = (mine ? dflt?.fields : board?.showFields || dflt?.fields) || ['Title'];
       const [data, fieldCatalog] = await Promise.all([get().fetchData(id, showFields), api('/contact-fields').catch(() => [])]);
       if (!Array.isArray(fieldCatalog)) throw new Error('The API server is out of date — stop and restart npm run dev');
-      set({ account: data.account, data, fieldCatalog, loading: false, boardRev: board?._rev || 0, conflict: null, cardLayout: { ...DEFAULT_LAYOUT, ...(board?.cardLayout || dflt?.layout || {}) },
-        overrides: board?.overrides || {}, positions: board?.positions || {}, extras: board?.extras || [], comments: board?.comments || {}, items: board?.items || [], tool: 'select', accountNotes: board?.accountNotes || '',
+      set({ account: data.account, data, fieldCatalog, loading: false, boardRev: board?._rev || 0, conflict: null, cardLayout: { ...DEFAULT_LAYOUT, ...((mine ? dflt?.layout : board?.cardLayout || dflt?.layout) || {}) },
+        context: board?.context || {}, overrides: board?.overrides || {}, positions: board?.positions || {}, extras: board?.extras || [], comments: board?.comments || {}, items: board?.items || [], tool: 'select', accountNotes: board?.accountNotes || '',
         reference: { ...DEFAULT_REF, ...(board?.reference || {}) }, showFields,
-        showRelated: board?.showRelated || dflt?.rel || DEFAULT_REL, hideUntitled: board?.hideUntitled ?? true, highlight: { ...DEFAULT_HL, ...(board?.highlight || dflt?.hl || {}) }, gridCols: board?.gridCols || ['title', 'reportsTo', 'role', 'es', 'vis'] });
+        showRelated: (mine ? dflt?.rel : board?.showRelated || dflt?.rel) || DEFAULT_REL, hideUntitled: board?.hideUntitled ?? true, highlight: { ...DEFAULT_HL, ...((mine ? dflt?.hl : board?.highlight || dflt?.hl) || {}) }, gridCols: board?.gridCols || ['title', 'reportsTo', 'role', 'es', 'vis'] });
       // the homepage's "recent boards" tile
       const a = data.account;
       api(`/recent/${id}/open`, jsonOpts('POST', { name: a.Name, industry: a.Industry, country: a.BillingCountry, type: a.Type, website: a.Website || null, subsidiaries: Math.max(0, (data.family?.length || 1) - 1), parent: a.Parent || null, target: !!a.Target_Account__c, salesFocus: !!a.Sales_Focus__c, contacts: data.contacts.length })).catch(() => {});
@@ -108,11 +109,11 @@ export const useStore = create((set, get) => ({
   /** Save right now (also used when the page is closing, so a reload can't swallow a pending change). */
   flushNow(keepalive = false, force = false) {
     clearTimeout(saveTimer); pending = false;
-    const { account, data, overrides, positions, extras, showFields, showRelated, hideUntitled, reference, comments, gridCols, accountNotes, highlight, items, cardLayout, boardRev, conflict } = get();
+    const { account, data, overrides, positions, extras, showFields, showRelated, hideUntitled, reference, comments, gridCols, accountNotes, highlight, items, cardLayout, context, boardRev, conflict } = get();
     if (!account || (conflict && !force)) return; // somebody else changed this board: hold our save until the user chooses
     if (saving) { again = true; return; }          // one save at a time, so a quick second edit can't look like a conflict with the first
     const meta = data ? { name: account.Name, industry: account.Industry, country: account.BillingCountry, type: account.Type, target: !!account.Target_Account__c, salesFocus: !!account.Sales_Focus__c, contacts: data.contacts.length } : undefined;
-    const body = { overrides, positions, extras, showFields, showRelated, hideUntitled, reference, comments, gridCols, accountNotes, highlight, items, cardLayout, meta, baseRev: boardRev, ...(force ? { force: true } : {}) };
+    const body = { overrides, positions, extras, showFields, showRelated, hideUntitled, reference, comments, gridCols, accountNotes, highlight, items, cardLayout, context, meta, baseRev: boardRev, ...(force ? { force: true } : {}) };
     saving = true;
     fetch(`/api/boards/${account.Id}`, { ...jsonOpts('PUT', body), keepalive: keepalive && JSON.stringify({ reference }).length < 60000 })
       .then(async (r) => {
@@ -129,11 +130,11 @@ export const useStore = create((set, get) => ({
   keepMine() { const c = get().conflict; set({ conflict: null, boardRev: c?.rev ?? get().boardRev }); get().flushNow(false, true); },
 
   // ---- card appearance ----
-  setLayout(patch) { set((s) => ({ cardLayout: { ...s.cardLayout, ...patch } })); get().persist(); },
+  setLayout(patch) { set((s) => ({ cardLayout: { ...s.cardLayout, ...patch } })); get().persist(); get().savePrefs(); },
   applyPreset(name) {
     const pr = PRESETS[name]; if (!pr) return;
     set({ cardLayout: { ...pr.layout }, highlight: { ...pr.hl }, showRelated: { ...pr.rel } });
-    get().setCardFields(pr.fields); // reloads the fields the preset needs
+    get().savePrefs(); get().setCardFields(pr.fields); // reloads the fields the preset needs
   },
   resetCard() { get().applyPreset('standard'); },
   saveCardDefault() {
@@ -159,7 +160,9 @@ export const useStore = create((set, get) => ({
   patch(id, fields) { get().snapshot(); set((s) => ({ overrides: { ...s.overrides, [id]: { ...s.overrides[id], ...fields } } })); get().persist(); },
   setPosition(id, pos) { get().snapshot(); set((s) => ({ positions: { ...s.positions, [id]: pos } })); get().persist(); },
   resetLayout() { get().snapshot(); set({ positions: {} }); get().persist(); },
-  setShow(k, v) { set({ [k]: v }); get().persist(); },
+  setShow(k, v) { set({ [k]: v }); get().persist(); if (['showRelated', 'highlight', 'showFields'].includes(k)) get().savePrefs(); },
+  setContext(patch) { set((s) => ({ context: { ...s.context, ...patch } })); get().persist(); },
+  savePrefs() { clearTimeout(prefTimer); prefTimer = setTimeout(() => { const { cardLayout, highlight, showRelated, showFields } = get(); api('/prefs', jsonOpts('PUT', { card: { layout: cardLayout, hl: highlight, rel: showRelated, fields: showFields } })).catch(() => {}); }, 600); },
   select(id) { set({ selected: id }); },
   /** Ask the board to pan/zoom to a card. */
   focus(id) { set({ focusId: id }); }, // a card id, or an array of ids to fit in view
@@ -256,7 +259,7 @@ export const useStore = create((set, get) => ({
 
   /** Choose which Salesforce Contact fields appear on the cards; re-fetches so the values are loaded. */
   setCardFields(fields) {
-    set({ showFields: fields }); get().persist();
+    set({ showFields: fields }); get().persist(); get().savePrefs();
     clearTimeout(fieldTimer);
     fieldTimer = setTimeout(async () => {
       const { account, showFields } = get(); if (!account) return;
@@ -313,8 +316,20 @@ export const useStore = create((set, get) => ({
       return f;
     }).filter((f) => Object.keys(f).length > 1);
   },
-  async push() {
-    const changes = get().pendingChanges();
+  /** The same edits as pendingChanges, one row per field: {id, name, key, label, from, to}, for the push review window. */
+  pendingDetail() {
+    const { data } = get(); if (!data) return [];
+    const orig = new Map(data.contacts.map((c) => [c.Id, c]));
+    const nm = (id) => (id ? orig.get(id)?.Name || get().people().find((p) => p.Id === id)?.Name || id : null);
+    const L = { ReportsToId: ['Reports To', (c) => nm(c.ReportsToId), nm], Region__c: ['Region', (c) => c.Region__c, (v) => v], Contact_Role__c: ['Role', (c) => c.Contact_Role__c, (v) => v], ES_Expansion_Status__c: ['ES status', (c) => c.ES_Expansion_Status__c, (v) => v] };
+    return get().pendingChanges().flatMap((f) => Object.keys(L).filter((k) => k in f).map((k) => ({ id: f.Id, name: orig.get(f.Id)?.Name || f.Id, key: k, label: L[k][0], from: L[k][1](orig.get(f.Id)), to: L[k][2](f[k]) })));
+  },
+  async push(rows) {
+    let changes = get().pendingChanges();
+    if (rows) { // only the ticked fields from the review window
+      const keep = new Map(); rows.forEach((r) => keep.set(r.id, [...(keep.get(r.id) || []), r.key]));
+      changes = changes.filter((c) => keep.has(c.Id)).map((c) => ({ Id: c.Id, ...Object.fromEntries(keep.get(c.Id).map((k) => [k, c[k]])) }));
+    }
     if (!changes.length) return { n: 0 };
     const res = await api('/push', jsonOpts('POST', { changes }));
     return { n: changes.length, failed: res.filter((r) => !r.success).length };

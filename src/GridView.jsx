@@ -7,7 +7,7 @@ import { matchesSearch, onBoard } from './search.js';
 const COLS = [
   { k: 'account', label: 'Account', w: 170 }, { k: 'title', label: 'Title', w: 210 }, { k: 'reportsTo', label: 'Reports to', w: 190 }, { k: 'department', label: 'Department', w: 130 },
   { k: 'region', label: 'Region', w: 120 }, { k: 'country', label: 'Country', w: 110 }, { k: 'role', label: 'Role', w: 140 },
-  { k: 'es', label: 'ES status', w: 110 }, { k: 'status', label: 'Contact status', w: 150 }, { k: 'ecm', label: 'ECM ★', w: 70 }, { k: 'email', label: 'Email', w: 210 },
+  { k: 'es', label: 'ES status', w: 110 }, { k: 'ecm', label: 'ECM ★', w: 70 }, { k: 'email', label: 'Email', w: 210 },
   { k: 'source', label: 'Source', w: 95 }, { k: 'vis', label: 'On board', w: 80 },
 ];
 
@@ -43,7 +43,6 @@ export default function GridView() {
       case 'country': return <span className="ell">{p.MailingCountry}</span>;
       case 'role': return <select value={p.Contact_Role__c || ''} onChange={(e) => patch(p.Id, { role: e.target.value || null })}><option value="" />{ROLES.map((r) => <option key={r}>{r}</option>)}</select>;
       case 'es': return <select value={p.ES_Expansion_Status__c || ''} onChange={(e) => patch(p.Id, { es: e.target.value || null })}><option value="" />{ES_STATES.map((r) => <option key={r}>{r}</option>)}</select>;
-      case 'status': return <select value={p.cstatus || ''} onChange={(e) => store.setStatus([p.Id], e.target.value || null)}><option value="" />{Object.entries(CONTACT_STATUS).map(([k, v]) => <option key={k} value={k}>{k === 'green' ? '🟢' : k === 'orange' ? '🟠' : '🟡'} {v.label}</option>)}</select>;
       case 'ecm': return <input type="checkbox" title="Enterprise Coalition Member" checked={!!p.Enterprise_Coalition_Member__c} onChange={(e) => patch(p.Id, { ecm: e.target.checked })} />;
       case 'email': return <span className="ell" title={p.Email || ''}>{p.Email}</span>;
       case 'source': return <span className="muted ell">{p.external ? p.source || 'external' : 'Salesforce'}</span>;

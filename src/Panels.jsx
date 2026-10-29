@@ -85,12 +85,6 @@ export function DetailPanel() {
           {people.filter((o) => o.Id !== p.Id && !bad.has(o.Id)).sort((a, b) => a.Name.localeCompare(b.Name)).map((o) => <option key={o.Id} value={o.Id}>{o.Name}{o.Title ? ` — ${o.Title}` : ''}</option>)}
         </select>
       </F>
-      <F label="Contact status (team key)">
-        <select value={p.cstatus || ''} onChange={(e) => store.setStatus([p.Id], e.target.value || null)}>
-          <option value="">— not set —</option>
-          {Object.entries(CONTACT_STATUS).map(([k, v]) => <option key={k} value={k}>{k === 'green' ? '🟢' : k === 'orange' ? '🟠' : '🟡'} {v.label}</option>)}
-        </select>
-      </F>
       <div className="grid2">
         <F label="Role"><select value={p.Contact_Role__c || ''} onChange={(e) => patch(p.Id, { role: e.target.value || null })}><option value="" />{ROLES.map((r) => <option key={r}>{r}</option>)}</select></F>
         <F label="ES status"><select value={p.ES_Expansion_Status__c || ''} onChange={(e) => patch(p.Id, { es: e.target.value || null })}><option value="" />{ES_STATES.map((r) => <option key={r}>{r}</option>)}</select></F>

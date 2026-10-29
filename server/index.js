@@ -148,6 +148,11 @@ app.get('/api/contact-fields', wrap(async (_req, res) => res.json(useDemo() ? de
 // instead of silently overwriting their work.
 const readBoard = (id) => { try { return JSON.parse(fs.readFileSync(boardFile(id), 'utf8')); } catch { return null; } };
 app.get('/api/boards/:id', (req, res) => res.json(readBoard(req.params.id)));
+// ---- per-user view settings (card layout etc.) so what you see follows YOU, not the board ----
+const prefsFile = dataPath('prefs.json');
+const readPrefs = () => { try { return JSON.parse(fs.readFileSync(prefsFile, 'utf8')); } catch { return {}; } };
+app.get('/api/prefs', (req, res) => res.json(readPrefs()[currentUser(req)] || {}));
+app.put('/api/prefs', (req, res) => { const all = readPrefs(); const b = req.body || {}; all[currentUser(req)] = { card: b.card && typeof b.card === 'object' ? b.card : undefined }; fs.writeFileSync(prefsFile, JSON.stringify(all)); res.json({ ok: true }); });
 // ---- recent boards (the homepage tiles) ----
 const recentFile = dataPath('recent.json');
 const readRecent = () => { try { return JSON.parse(fs.readFileSync(recentFile, 'utf8')); } catch { return {}; } };

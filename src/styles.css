@@ -258,3 +258,10 @@ main.tool-note .react-flow__pane,main.tool-text .react-flow__pane,main.tool-comm
 .pend-chip{margin-left:6px;background:#e5484d;color:#fff;font:700 10px system-ui;padding:1px 6px;border-radius:8px;white-space:nowrap}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.12)}
 .cnode{border-top-width:5px}.cnode.ecm,.cnode.st,.cnode.st-green,.cnode.st-orange,.cnode.st-yellow{border-top-color:var(--accent)}
+/* company context page */
+.ctxpage{flex:1;overflow:auto;padding:18px}.ctxin{max-width:1100px;margin:0 auto}.ctxin h2{margin:0 0 4px}
+.ctxgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin:12px 0}
+.ctxcard{display:flex;flex-direction:column;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px}.ctxcard.wide{margin-top:4px}
+.ctxcard textarea,.ctxcard input{width:100%;box-sizing:border-box}.ctxadd{display:flex;gap:6px}.ctxadd input{flex:1}
+.ctxrow{display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--line)}.ctxrow>span:first-child{flex:1}
+.pushtbl tr.off td{opacity:.45}

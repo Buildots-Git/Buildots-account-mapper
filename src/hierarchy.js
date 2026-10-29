@@ -85,15 +85,15 @@ export const regionColor = (r, all = []) => (!r ? null : REGION_COLORS[r] || PAL
 
 export const ES_STATES = ['Targeted', 'Aware', 'Involved', 'Advocate', 'Buyer', 'Won'];
 export const ES_COLORS = {
-  Targeted: ['#6b7280', '#eef0f3'], Aware: ['#2c5fa8', '#e6eefa'], Involved: ['#2f7d4f', '#e4f3ea'],
-  Advocate: ['#7b3fb0', '#f1e8fa'], Buyer: ['#b0621c', '#fbeee0'], Won: ['#1d6b3a', '#d9f0e1'],
+  Targeted: ['#6b7280', '#eef0f3'], Aware: ['#2c5fa8', '#e6eefa'], Involved: ['#0f766e', '#ddf4f0'],
+  Advocate: ['#15803d', '#dcf5e4'], Buyer: ['#166534', '#cfeedb'], Won: ['#14532d', '#c4e9d0'],
 };
-// Board colour = ES Status, on a cool-to-hot scale (agreed with Erez: region was the least useful thing to colour by).
+// Board colour = ES Status. Positive = green (Erez: an Advocate must not be red): grey -> blue -> green, deepening as the relationship grows; Blocked is red.
 // Edit this map to change which status gets which colour. People with no ES status, or one not listed here, stay neutral grey.
 export const ES_NEUTRAL = '#c3c9d3';
 export const ES_HEAT = {
-  Targeted: '#cfd4dc', Aware: '#f6d365', Involved: '#f9a03f', Advocate: '#f26a3d', Buyer: '#e0342b', Won: '#a50f15',
-  Blocked: '#1f2937', // not a Salesforce value yet; shown dark if it is added
+  Targeted: '#aab2bf', Aware: '#6aa7e8', Involved: '#35b8a6', Advocate: '#3ccf6a', Buyer: '#1f9d4b', Won: '#0b6b34',
+  Blocked: '#e0342b', // not a Salesforce value yet; shown red if it is added
 };
 export const heatColor = (es) => ES_HEAT[es] || ES_NEUTRAL;
 export const ROLES = ['Champion', 'Decision Maker', 'Executive Sponsor', 'Economic Buyer', 'Technical Buyer', 'Influencer', 'BIM Manager', 'Other'];

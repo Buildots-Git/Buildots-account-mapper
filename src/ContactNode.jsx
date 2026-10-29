@@ -40,7 +40,7 @@ export function CardBody({ data, selected, children }) {
   const extras = showFields.filter((k) => k !== 'Title' && val(p, k));
   const showBadges = counts.opps > 0 || counts.leads > 0 || counts.cs > 0 || (L.comments && counts.notes > 0);
   return (
-    <div className={`cnode${selected ? ' sel' : ''}${p.external ? ' ext' : ''}${dim ? ' dim' : ''}${hit ? ' hit' : ''}${drop ? ' drop' : ''}${ecm ? ' ecm' : ''}${p.cstatus ? ` st st-${p.cstatus}` : ''}${pend ? ' pend' : ''}`}
+    <div className={`cnode${selected ? ' sel' : ''}${p.external ? ' ext' : ''}${dim ? ' dim' : ''}${hit ? ' hit' : ''}${drop ? ' drop' : ''}${ecm ? ' ecm' : ''}${pend ? ' pend' : ''}`}
       style={{ '--accent': color || '#cbd2dc', '--fs': L.font, width: L.width }}>
       {children}
       {data.branch && <button className={`fold nodrag${data.branch.folded ? ' on' : ''}`} title={data.branch.folded ? `Show ${data.branch.n} people in this team` : 'Hide this team'} onClick={(e) => { e.stopPropagation(); useStore.getState().toggleBranch(p.Id, data.branch.folded); }}>{data.branch.folded ? `+${data.branch.n}` : '−'}</button>}
