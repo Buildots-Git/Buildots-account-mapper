@@ -43,6 +43,7 @@ export function CardBody({ data, selected, children }) {
     <div className={`cnode${selected ? ' sel' : ''}${p.external ? ' ext' : ''}${dim ? ' dim' : ''}${hit ? ' hit' : ''}${drop ? ' drop' : ''}${ecm ? ' ecm' : ''}${pend ? ' pend' : ''}`}
       style={{ '--accent': color || '#cbd2dc', '--fs': L.font, width: L.width }}>
       {children}
+      {!p.isGroup && <button className="rmx nodrag" title="Remove from this board (Salesforce unchanged)" aria-label={`Remove ${p.Name} from this board`} onClick={(e) => { e.stopPropagation(); useStore.getState().removeFromBoard([p.Id]); }}>×</button>}
       {data.branch && <button className={`fold nodrag${data.branch.folded ? ' on' : ''}`} title={data.branch.folded ? `Show ${data.branch.n} people in this team` : 'Hide this team'} onClick={(e) => { e.stopPropagation(); useStore.getState().toggleBranch(p.Id, data.branch.folded); }}>{data.branch.folded ? `+${data.branch.n}` : '−'}</button>}
       {pend && <span className="pend-tag" title={`Changed here, not in Salesforce yet: ${pend.join(', ')}. Use ⋯ → Push changes to Salesforce.`}>↑ Not in Salesforce yet · {pend.join(', ')}</span>}
       {ecm && <span className="ecm-star" title="Enterprise Coalition Member (ECM)">★</span>}
@@ -71,7 +72,7 @@ export function CardBody({ data, selected, children }) {
         <button title={p.Linkedin_Profile_URL__c ? 'Sign in to LinkedIn, then open this profile' : 'Sign in to LinkedIn, then search for this person'} onClick={(e) => { e.stopPropagation(); openTool('linkedin', p); }}>in</button>
         <button title="Open the ZoomInfo sign-in page (name copied)" onClick={(e) => { e.stopPropagation(); openTool('zoominfo', p); }}>ZI</button>
         <button title="Open the Lusha sign-in page (name copied)" onClick={(e) => { e.stopPropagation(); openTool('lusha', p); }}>Lu</button>
-        <button title="Hide from board" onClick={(e) => { e.stopPropagation(); useStore.getState().setVisible([p.Id], false); }}>Hide</button>
+        <button title="Remove from this board (Salesforce unchanged)" onClick={(e) => { e.stopPropagation(); useStore.getState().removeFromBoard([p.Id]); }}>Remove</button>
       </div>}
       {L.comments && notesList.length > 0 && (
         <div className="cpop" role="tooltip">

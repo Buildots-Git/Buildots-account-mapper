@@ -265,3 +265,4 @@ main.tool-note .react-flow__pane,main.tool-text .react-flow__pane,main.tool-comm
 .ctxcard textarea,.ctxcard input{width:100%;box-sizing:border-box}.ctxadd{display:flex;gap:6px}.ctxadd input{flex:1}
 .ctxrow{display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--line)}.ctxrow>span:first-child{flex:1}
 .pushtbl tr.off td{opacity:.45}
+.cnode .rmx{position:absolute;top:-9px;right:-9px;width:20px;height:20px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--mut);font:700 13px/1 system-ui;cursor:pointer;opacity:0;padding:0;z-index:3;transition:opacity .12s}.cnode:hover .rmx,.cnode.sel .rmx{opacity:1}.cnode .rmx:hover{background:#e5484d;color:#fff;border-color:#e5484d}

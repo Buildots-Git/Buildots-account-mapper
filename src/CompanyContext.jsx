@@ -21,15 +21,15 @@ export default function CompanyContext() {
     <div className="ctxpage">
       <div className="ctxin">
         <h2>{s.account.Name} · company context</h2>
-        <p className="muted">Board-only for now — nothing here is written to Salesforce. Use it in the planning session: org chart → mission and initiatives → decision-makers → account plan → QAP.</p>
+        <p className="muted">Board-only for now — nothing here is written to Salesforce. Use it in the planning session: org chart → mission and initiatives → decision-makers → account plan → quarterly account plan (QAP).</p>
         <div className="ctxgrid">
           {FIELDS.map(([k, label, ph]) => (
             <label key={k} className="ctxcard"><b>{label}</b>
               <textarea rows={5} defaultValue={c[k] || ''} placeholder={ph} onBlur={(e) => e.target.value !== (c[k] || '') && s.setContext({ [k]: e.target.value })} /></label>
           ))}
-          <div className="ctxcard"><b>Latest QAP</b>
-            <span className="muted sm">Pulling the latest QAP from Salesforce comes next. Until then, paste the link and a one-line summary.</span>
-            <input defaultValue={c.qapUrl || ''} placeholder="Link to the QAP" onBlur={(e) => e.target.value !== (c.qapUrl || '') && s.setContext({ qapUrl: e.target.value })} />
+          <div className="ctxcard"><b>Latest QAP (quarterly account plan)</b>
+            <span className="muted sm">Pulling the latest quarterly account plan from Salesforce comes next. Until then, paste the link and a one-line summary.</span>
+            <input defaultValue={c.qapUrl || ''} placeholder="Link to the quarterly account plan" onBlur={(e) => e.target.value !== (c.qapUrl || '') && s.setContext({ qapUrl: e.target.value })} />
             <textarea rows={3} defaultValue={c.qapNote || ''} placeholder="What the QAP says vs what we think the plan should be" onBlur={(e) => e.target.value !== (c.qapNote || '') && s.setContext({ qapNote: e.target.value })} />
             {c.qapUrl && /^https?:\/\//.test(c.qapUrl) && <a href={c.qapUrl} target="_blank" rel="noreferrer">Open QAP ↗</a>}
           </div>

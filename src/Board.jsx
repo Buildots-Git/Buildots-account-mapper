@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useEffect } from 'react';
 import { ReactFlow, applyNodeChanges, Background, BackgroundVariant, Controls, MiniMap, BaseEdge, EdgeLabelRenderer, getSmoothStepPath, useReactFlow, useNodesInitialized, ReactFlowProvider } from '@xyflow/react';
 import AccountNode from './AccountNode.jsx';
 import ContactNode from './ContactNode.jsx';
@@ -245,6 +245,19 @@ function Inner() {
     const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
     st.addItem(st.tool === 'comment' ? { type: 'comment', x: pos.x - 18, y: pos.y - 18 } : { type: st.tool, x: pos.x - (st.tool === 'note' ? 100 : 110), y: pos.y - (st.tool === 'note' ? 80 : 20) });
   }, [screenToFlowPosition, select]);
+  // Delete / Backspace removes the selected people from the board (Salesforce untouched; ⌘Z undoes)
+  useEffect(() => {
+    const k = (e) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      if (e.metaKey || e.ctrlKey || e.altKey || /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable) return;
+      const st = useStore.getState(); if (st.view !== 'board') return;
+      const ids = new Set(rfRef.current.getNodes().filter((n) => n.selected && n.type === 'contact').map((n) => n.id));
+      if (st.selected) ids.add(st.selected);
+      const ok = [...ids].filter((id) => !String(id).startsWith('acct:'));
+      if (ok.length) { e.preventDefault(); st.removeFromBoard(ok); }
+    };
+    window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k);
+  }, []);
   const onNodesDelete = useCallback((ns) => { const ids = ns.filter((n) => n.type !== 'contact').map((n) => n.id); if (ids.length) useStore.getState().deleteItems(ids); }, []);
 
   // Drag a person from the People panel onto the canvas to put them on the board right there.

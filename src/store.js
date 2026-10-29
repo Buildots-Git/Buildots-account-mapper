@@ -247,6 +247,15 @@ export const useStore = create((set, get) => ({
     set((s) => { const o = { ...s.overrides }; ids.forEach((id) => { o[id] = { ...o[id], hidden: !visible, show: visible }; }); return { overrides: o }; });
     get().persist();
   },
+  /** Take people off this board (Salesforce is not touched): added/external cards are deleted, Salesforce contacts are hidden and can be brought back from People → Hidden. */
+  removeFromBoard(ids) {
+    if (!ids.length) return;
+    get().snapshot();
+    const ext = new Set(get().extras.map((e) => e.Id));
+    set((s) => { const o = { ...s.overrides }; ids.filter((id) => !ext.has(id)).forEach((id) => { o[id] = { ...o[id], hidden: true, show: false }; }); return { overrides: o, extras: s.extras.filter((e) => !ids.includes(e.Id)), selected: ids.includes(s.selected) ? null : s.selected }; });
+    get().persist();
+    get().flash(`Removed ${ids.length} ${ids.length === 1 ? 'person' : 'people'} from this board — Salesforce unchanged. ⌘Z to undo, or bring back from People → Hidden.`);
+  },
   /** Card buttons: open the Enrich panel focused on one person. */
   enrichPerson(id, provider) { set({ enrichTarget: { id, provider } }); },
 
