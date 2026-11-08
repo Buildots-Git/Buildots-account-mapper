@@ -56,6 +56,8 @@ export function inferHierarchy(people, locked = {}) {
       const top = pool.filter((o) => o.rank === 0);
       if (top.length) pool = top;
     } else if (me.rank >= 2) {
+      // Support roles (scheduling, estimating, finance...) report to leadership, never to a project manager.
+      if (isSupport(me.p.Title) && !isOps(me.p.Title)) { const lead = pool.filter((o) => o.rank <= 3); if (lead.length) pool = lead; }
       const coo = pool.filter((o) => /\b(coo|operating)\b/i.test(o.p.Title || ''));
       const closest = Math.max(...pool.map((o) => o.rank));
       const near = pool.filter((o) => o.rank === closest);

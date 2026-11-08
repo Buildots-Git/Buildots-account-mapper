@@ -13,6 +13,8 @@ import ReviewModal from './ReviewModal.jsx';
 import PushReview from './PushReview.jsx';
 import CompanyContext from './CompanyContext.jsx';
 import CanvasToolbar from './CanvasToolbar.jsx';
+import VersionHistory from './VersionHistory.jsx';
+import { SfStatus, Viewers, UndoList } from './StatusBits.jsx';
 import { DetailPanel, EnrichPanel, FieldPicker, AddPersonPanel, ReferencePanel, ReferenceOverlay, CommentsPanel, PeoplePanel, AccountPanel } from './Panels.jsx';
 
 function Loading({ name, full }) {
@@ -41,10 +43,20 @@ function AccountSwitcher({ current, onClose }) {
 
 export default function App() {
   const s = useStore();
-  const [menu, setMenu] = useState(null);
+  const [menu, setMenu] = useState(null); const [history, setHistory] = useState(false);
   const [toast, setToast] = useState(null);
   const [fatal, setFatal] = useState(null);
   useEffect(() => { s.initAuth(); }, []);
+  // Other people edit the same boards: look for their saves every few seconds while this board is open and the tab is visible.
+  const openId = s.account?.Id;
+  useEffect(() => {
+    if (!openId || openId === 'demo-meridian') return;
+    const st = useStore.getState; st().heartbeat().catch(() => {});
+    const t = setInterval(() => { if (document.visibilityState === 'visible') { st().refreshBoard().catch(() => {}); st().heartbeat().catch(() => {}); } }, 6000);
+    const bye = () => { try { fetch(`/api/boards/${openId}/live`, { method: 'DELETE', keepalive: true, headers: { 'x-requested-with': 'account-mapper' } }); } catch { /* the entry expires on its own */ } };
+    window.addEventListener('pagehide', bye);
+    return () => { clearInterval(t); window.removeEventListener('pagehide', bye); };
+  }, [openId]);
   const signedIn = !!s.auth.user && !s.auth.user.mustChange;
   useEffect(() => { if (signedIn && !s.status) s.init().catch((e) => setFatal(e.message)); }, [signedIn]);
   useEffect(() => {
@@ -68,7 +80,7 @@ export default function App() {
 
   const pendingN = s.pendingChanges().length;
   const close = () => setMenu(null);
-  const whyNoWrite = !s.status.switchOn ? 'Pushing to Salesforce is switched off on this server (ALLOW_WRITE is not set to 1 in .env). Your changes stay on the board.' : !s.status.writer ? 'You don’t have permission to update Salesforce. Ask an admin to turn it on under profile menu → Users. Your changes stay on the board.' : 'Connect your Salesforce account first (profile menu).';
+  const whyNoWrite = !s.status.switchOn ? 'Pushing to Salesforce is switched off on this server (ALLOW_WRITE is not set to 1 in .env). Your changes stay on the board.' : !s.status.writer ? 'You don’t have permission to update Salesforce. Ask an admin to turn it on for you. Your changes stay on the board.' : 'Connect your Salesforce account first (profile menu).';
   const push = async () => {
     if (!s.status.canWrite) { say(whyNoWrite); return; }
     if (!s.pendingChanges().length) { say('Nothing to push — no changes waiting'); return; }
@@ -84,7 +96,8 @@ export default function App() {
         </div>
         {!s.loading && (s.data?.family?.length || 0) > 1 && <span className="target-badge" style={{ background: 'rgba(66,98,255,.14)', color: '#7b93ff', borderColor: 'rgba(66,98,255,.4)' }} title="This account has subsidiaries; they appear as account cards on the board">◈ Parent · {s.data.family.length - 1} subsidiaries</span>}
         {s.account.ParentId && !s.loading && <button className="btn ghost sm" title={`This account belongs to ${s.account.Parent}`} onClick={() => s.open(s.account.ParentId, s.account.Parent)}>↑ Part of {s.account.Parent}</button>}
-        <span className="board-only" title="Everything you change here stays on this board until you choose Push changes to Salesforce.">Board only · Salesforce unchanged</span>
+        <SfStatus pendingN={pendingN} why={whyNoWrite} />
+        <Viewers />
         {!s.loading && s.data?.contacts?.some((c) => c.Account_Target) && <span className="target-badge" title="Target / sales-focus account">◎ Target account</span>}
         <div className="seg">
           <button className={s.view === 'board' ? 'on' : ''} onClick={() => s.setShow('view', 'board')}>Board</button>
@@ -101,12 +114,15 @@ export default function App() {
             <button className="item" onClick={() => { setMenu(null); if (confirm('Discard every manual and Salesforce reporting line on this board and rebuild purely from titles? (⌘Z undoes this)')) { s.autoBuild({ overwrite: true }); say('Rebuilt from titles only'); } }}>Rebuild from scratch (ignore existing links)</button>
             <button className="item" onClick={() => { s.resetLayout(); setMenu(null); }}>Reset card positions</button>
             <button className="item" onClick={() => { setMenu(null); push(); }}>Push changes to Salesforce…</button>
+            {s.auth.user?.role !== 'viewer' && <button className="item" onClick={() => { setMenu(null); setHistory(true); }}>Version history…</button>}
           </div>}
         </div>
         <button className="btn ghost" title="Account details, research notes, opportunities and projects" onClick={() => setMenu(menu === 'account' ? null : 'account')}>Account info</button>
         <div className="undo seg">
           <button title="Undo (⌘Z)" disabled={!s.past.length} onClick={() => s.undo()}>↶</button>
           <button title="Redo (⇧⌘Z)" disabled={!s.future.length} onClick={() => s.redo()}>↷</button>
+          <button title="See the last changes and go back to any of them" disabled={!s.past.length && !s.future.length && s.auth.user?.role === 'viewer'} onClick={() => setMenu(menu === 'undo' ? null : 'undo')}>▾</button>
+          {menu === 'undo' && <UndoList onClose={() => setMenu(null)} onHistory={() => { setMenu(null); setHistory(true); }} />}
         </div>
         <button className="btn ghost" onClick={() => setMenu(menu === 'people' ? null : 'people')}>People</button>
         <button className="btn ghost" onClick={() => setMenu(menu === 'add' ? null : 'add')}>+ Person</button>
@@ -117,6 +133,7 @@ export default function App() {
         <ThemeToggle />
         <UserMenu />
       </header>
+      {s.auth.user?.role === 'viewer' && <div className="viewonly" role="status">View only — you can look around and filter, but changes are not saved.</div>}
       {s.status.demo && <div className="banner">Demo data — Salesforce not connected.</div>}
       {!s.status.demo && !s.status.canWrite && <div className="banner info">Board-only mode — your changes are saved here but won’t update Salesforce.</div>}
       {s.conflict && (
@@ -137,6 +154,7 @@ export default function App() {
       </main>
       <ReviewModal />
       <PushReview />
+      {history && <VersionHistory onClose={() => setHistory(false)} />}
       {(toast || s.toast) && <div className="toast">{toast || s.toast}</div>}
     </div>
   );

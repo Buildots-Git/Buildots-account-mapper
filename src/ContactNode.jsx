@@ -40,10 +40,11 @@ export function CardBody({ data, selected, children }) {
   const extras = showFields.filter((k) => k !== 'Title' && val(p, k));
   const showBadges = counts.opps > 0 || counts.leads > 0 || counts.cs > 0 || (L.comments && counts.notes > 0);
   return (
-    <div className={`cnode${selected ? ' sel' : ''}${p.external ? ' ext' : ''}${dim ? ' dim' : ''}${hit ? ' hit' : ''}${drop ? ' drop' : ''}${ecm ? ' ecm' : ''}${pend ? ' pend' : ''}`}
+    <div className={`cnode${selected ? ' sel' : ''}${p.external ? ' ext' : ''}${dim ? ' dim' : ''}${hit ? ' hit' : ''}${drop ? ' drop' : ''}${ecm ? ' ecm' : ''}${p.goal ? ' goal' : ''}${pend ? ' pend' : ''}`}
       style={{ '--accent': color || '#cbd2dc', '--fs': L.font, width: L.width }}>
       {children}
       {!p.isGroup && <button className="rmx nodrag" title="Remove from this board (Salesforce unchanged)" aria-label={`Remove ${p.Name} from this board`} onClick={(e) => { e.stopPropagation(); useStore.getState().removeFromBoard([p.Id]); }}>×</button>}
+      {!p.isGroup && <button className={`tgx nodrag${p.goal ? ' on' : ''}`} title={p.goal ? 'Immediate target — click to clear' : 'Mark as an immediate target'} aria-pressed={!!p.goal} aria-label={`${p.goal ? 'Clear' : 'Mark'} ${p.Name} as an immediate target`} onClick={(e) => { e.stopPropagation(); useStore.getState().patch(p.Id, { goal: !p.goal }); }}>◎</button>}
       {data.branch && <button className={`fold nodrag${data.branch.folded ? ' on' : ''}`} title={data.branch.folded ? `Show ${data.branch.n} people in this team` : 'Hide this team'} onClick={(e) => { e.stopPropagation(); useStore.getState().toggleBranch(p.Id, data.branch.folded); }}>{data.branch.folded ? `+${data.branch.n}` : '−'}</button>}
       {pend && <span className="pend-tag" title={`Changed here, not in Salesforce yet: ${pend.join(', ')}. Use ⋯ → Push changes to Salesforce.`}>↑ Not in Salesforce yet · {pend.join(', ')}</span>}
       {ecm && <span className="ecm-star" title="Enterprise Coalition Member (ECM)">★</span>}

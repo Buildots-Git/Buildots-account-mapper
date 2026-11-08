@@ -89,6 +89,7 @@ export function DetailPanel() {
         <F label="Role"><select value={p.Contact_Role__c || ''} onChange={(e) => patch(p.Id, { role: e.target.value || null })}><option value="" />{ROLES.map((r) => <option key={r}>{r}</option>)}</select></F>
         <F label="ES status"><select value={p.ES_Expansion_Status__c || ''} onChange={(e) => patch(p.Id, { es: e.target.value || null })}><option value="" />{ES_STATES.map((r) => <option key={r}>{r}</option>)}</select></F>
         <F label="Region"><input defaultValue={p.Region__c || ''} onBlur={(e) => patch(p.Id, { region: e.target.value || null })} /></F>
+        <F label="Immediate target ◎"><select value={p.goal ? 'y' : 'n'} onChange={(e) => patch(p.Id, { goal: e.target.value === 'y' })}><option value="y">Yes — one of our next conversations</option><option value="n">No</option></select></F>
         <F label="ECM ★"><select value={p.Enterprise_Coalition_Member__c ? 'y' : 'n'} onChange={(e) => patch(p.Id, { ecm: e.target.value === 'y' })}><option value="y">Enterprise Coalition Member</option><option value="n">No</option></select></F>
       </div>
       <dl>

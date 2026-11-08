@@ -40,7 +40,7 @@ try {
   srv = await start({ OKTA_ISSUER: ISS, OKTA_CLIENT_ID: 'cid', OKTA_CLIENT_SECRET: 'sekret', PUBLIC_URL: B, SSO_ALLOWED_DOMAINS: 'buildots.com' });
   r = await call('GET', '/api/auth/state'); t('SSO shows up as available', r.json.sso?.label === 'Okta' && r.json.sso.passwordLogin === true);
   let f = await signInFlow(); t('first sign-in creates the user and signs them in', f.r.status === 302 && f.r.loc === '/' && !!f.r.ck, JSON.stringify(f.r));
-  const ck = f.r.ck; r = await call('GET', '/api/auth/state', null, ck); t('session belongs to the Okta email, as a regular user', r.json.user?.username === 'new.person@buildots.com' && r.json.user.role === 'user');
+  const ck = f.r.ck; r = await call('GET', '/api/auth/state', null, ck); t('session belongs to the Okta email, as a regular user', r.json.user?.username === 'new.person@buildots.com' && r.json.user.role === 'editor');
   r = await call('GET', '/api/users', null, ck); t('SSO user cannot manage users', r.status === 403);
   r = await call('POST', '/api/auth/login', { username: 'new.person@buildots.com', password: 'anything-at-all-1A' }); t('SSO-created users have no usable password', r.status === 401);
   f = await signInFlow(); r = await call('GET', '/api/auth/state', null, f.r.ck); t('signing in again reuses the same user', r.json.user?.username === 'new.person@buildots.com');

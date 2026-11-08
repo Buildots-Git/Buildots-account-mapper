@@ -29,7 +29,15 @@ const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
 export const normUser = (u) => String(u || '').trim().toLowerCase();
 export const validUsername = (u) => /^[a-z0-9][a-z0-9._@+-]{2,63}$/.test(u);
 export const hasUsers = () => Object.keys(users()).length > 0;
-export const publicUser = (name, u) => ({ username: name, role: u.role, mustChange: !!u.mustChange, canPush: u.role === 'admin' || !!u.canPush, createdAt: u.createdAt, lastLoginAt: u.lastLoginAt || null });
+// Roles: admin (everything), editor (changes boards; may push to Salesforce if switched on), viewer (looks only). Old accounts stored 'user' = editor.
+export const ROLES = ['admin', 'editor', 'viewer'];
+export const roleOf = (u) => (u.role === 'admin' ? 'admin' : u.role === 'viewer' ? 'viewer' : 'editor');
+const normRole = (r) => (r === 'admin' ? 'admin' : r === 'viewer' ? 'viewer' : 'editor');
+// Which accounts' boards a person may open: everything, or only the ones an admin picked ([{ id, name }]). Admins always see everything.
+export const accessOf = (u) => (roleOf(u) === 'admin' || u.access !== 'assigned' ? 'all' : 'assigned');
+export const canSeeBoard = (user, id) => !user || user.access !== 'assigned' || user.role === 'admin' || id === 'demo-meridian' || (user.boards || []).some((b) => b.id === id);
+export const publicUser = (name, u) => ({ username: name, role: roleOf(u), mustChange: !!u.mustChange, canPush: roleOf(u) === 'admin' || (roleOf(u) === 'editor' && !!u.canPush), createdAt: u.createdAt, lastLoginAt: u.lastLoginAt || null,
+  access: accessOf(u), boards: accessOf(u) === 'assigned' ? (u.boards || []) : [], disabled: !!u.disabled, disabledAt: u.disabledAt || null });
 export const listUsers = () => Object.entries(users()).map(([n, u]) => publicUser(n, u)).sort((a, b) => a.username.localeCompare(b.username));
 
 // ---------------------------------------------------------------- passwords
@@ -86,13 +94,16 @@ export function authenticate(req, _res, next) {
     const s = sessions[sha(token)]; const now = Date.now();
     if (s && now - s.last <= IDLE_MS && now - s.created <= ABSOLUTE_MS) {
       const u = users()[s.username];
-      if (u) { req.user = { username: s.username, role: u.role, mustChange: !!u.mustChange, canPush: !!u.canPush, email: s.username }; req.sessionToken = token; if (now - s.last > 60_000) { s.last = now; saveSessions(); } }
+      if (u && !u.disabled) { req.user = { username: s.username, role: roleOf(u), mustChange: !!u.mustChange, canPush: !!u.canPush, access: accessOf(u), boards: u.boards || [], email: s.username }; req.sessionToken = token; if (now - s.last > 60_000) { s.last = now; saveSessions(); } }
     }
   }
   next();
 }
 export const requireUser = (req, res, next) => (req.user ? next() : res.status(401).json({ error: 'Sign in required', code: 'auth' }));
 export const requireAdmin = (req, res, next) => (req.user?.role === 'admin' ? next() : res.status(403).json({ error: 'Admins only' }));
+export const requireEditor = (req, res, next) => (req.user && req.user.role !== 'viewer' ? next() : res.status(403).json({ error: 'You have view-only access, so you cannot change boards.', code: 'viewer' }));
+/** For routes with an :id (an account / board): refuse people who were not given that account. */
+export const requireBoard = (req, res, next) => (canSeeBoard(req.user, req.params.id) ? next() : res.status(403).json({ error: 'You do not have access to this account. Ask an admin.', code: 'no-access' }));
 
 /** Blocks cross-site form posts: every state-changing request must carry this header (a browser won't add it cross-site). */
 export function csrfGuard(req, res, next) {
@@ -121,6 +132,7 @@ export async function checkLogin(req, usernameRaw, password) {
   const u = users()[username];
   const ok = await verifyPassword(String(password || ''), u ? u.hash : await dummyHash());
   if (!u || !ok) { noteFail(req, username); return { error: 'Incorrect username or password.' }; }
+  if (u.disabled) return { error: 'This account has been deactivated. Ask an admin.' };
   fails.delete(failKey(req, username));
   u.lastLoginAt = new Date().toISOString(); const all = users(); all[username] = u; saveUsers(all);
   return { username, user: u };
@@ -128,20 +140,21 @@ export async function checkLogin(req, usernameRaw, password) {
 
 // ---------------------------------------------------------------- user management
 const bad = (m) => Object.assign(new Error(m), { status: 400 });
-export async function createUser({ username, password, role = 'user', mustChange = false, canPush = false }) {
+export async function createUser({ username, password, role = 'editor', mustChange = false, canPush = false }) {
   const name = normUser(username);
   if (!validUsername(name)) throw bad('Usernames are 3–64 characters: letters, numbers and . _ @ + -');
   const prob = passwordProblem(password, name); if (prob) throw bad(prob);
   const all = users(); if (all[name]) throw bad('That username is already taken.');
-  all[name] = { hash: await hashPassword(password), role: role === 'admin' ? 'admin' : 'user', mustChange, canPush: !!canPush && role !== 'admin', createdAt: new Date().toISOString() };
+  all[name] = { hash: await hashPassword(password), role: normRole(role), mustChange, canPush: !!canPush && normRole(role) === 'editor', createdAt: new Date().toISOString() };
   saveUsers(all); return publicUser(name, all[name]);
 }
 /** The user for an SSO sign-in: the existing one with that email, or a new regular user with no usable password. */
 export async function ssoUser(email) {
   const name = normUser(email); const all = users();
+  if (all[name]?.disabled) throw Object.assign(new Error('Your account has been deactivated. Ask an admin.'), { ssoCode: 'disabled' });
   if (!all[name]) {
     if (!validUsername(name)) throw bad('That email cannot be used as a username.');
-    all[name] = { hash: await hashPassword(crypto.randomBytes(32).toString('base64url')), role: 'user', mustChange: false, canPush: false, sso: true, createdAt: new Date().toISOString() };
+    all[name] = { hash: await hashPassword(crypto.randomBytes(32).toString('base64url')), role: 'editor', mustChange: false, canPush: false, sso: true, createdAt: new Date().toISOString() };
   }
   all[name].lastLoginAt = new Date().toISOString(); saveUsers(all);
   return { username: name, user: all[name] };
@@ -153,8 +166,25 @@ export async function setPassword(username, password, { mustChange = false } = {
 }
 export function setRole(username, role) {
   const name = normUser(username); const all = users(); if (!all[name]) throw bad('No such user.');
-  if (all[name].role === 'admin' && role !== 'admin' && Object.values(all).filter((u) => u.role === 'admin').length < 2) throw bad('There must be at least one admin.');
-  all[name].role = role === 'admin' ? 'admin' : 'user'; saveUsers(all);
+  if (all[name].role === 'admin' && role !== 'admin' && activeAdmins(all) < 2) throw bad('There must be at least one admin.');
+  all[name].role = normRole(role); if (all[name].role !== 'editor') all[name].canPush = false; saveUsers(all);
+}
+const activeAdmins = (all) => Object.values(all).filter((u) => u.role === 'admin' && !u.disabled).length;
+/** Which accounts a person may open. mode 'all', or 'assigned' with a list of { id, name }. */
+export function setAccess(username, mode, boards = []) {
+  const name = normUser(username); const all = users(); if (!all[name]) throw bad('No such user.');
+  if (mode === 'assigned') {
+    const clean = boards.filter((b) => b && /^[\w-]{3,40}$/.test(String(b.id))).map((b) => ({ id: String(b.id), name: String(b.name || b.id).slice(0, 120) }));
+    all[name].access = 'assigned'; all[name].boards = [...new Map(clean.map((b) => [b.id, b])).values()];
+  } else { all[name].access = 'all'; delete all[name].boards; }
+  saveUsers(all);
+}
+/** Offboarding: no more sign-in, every open session ended. (The caller also wipes stored keys and the Salesforce link.) */
+export function setDisabled(username, off) {
+  const name = normUser(username); const all = users(); if (!all[name]) throw bad('No such user.');
+  if (off && all[name].role === 'admin' && activeAdmins(all) < 2) throw bad('There must be at least one active admin.');
+  all[name].disabled = !!off; if (off) all[name].disabledAt = new Date().toISOString(); else delete all[name].disabledAt;
+  all[name].canPush = off ? false : all[name].canPush; saveUsers(all); if (off) endUserSessions(name);
 }
 export function setCanPush(username, on) {
   const name = normUser(username); const all = users(); if (!all[name]) throw bad('No such user.');
@@ -168,7 +198,7 @@ export function migrateWriters(writers = []) {
 }
 export function removeUser(username) {
   const name = normUser(username); const all = users(); if (!all[name]) throw bad('No such user.');
-  if (all[name].role === 'admin' && Object.values(all).filter((u) => u.role === 'admin').length < 2) throw bad('There must be at least one admin.');
+  if (all[name].role === 'admin' && activeAdmins(all) < 2) throw bad('There must be at least one admin.');
   delete all[name]; saveUsers(all); endUserSessions(name);
 }
 export const getUserRecord = (name) => users()[normUser(name)];

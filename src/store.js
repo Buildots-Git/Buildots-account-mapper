@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { inferHierarchy, regionOf } from './hierarchy.js';
+import { inferHierarchy, regionOf, rankOf } from './hierarchy.js';
 
 const CSRF = { 'X-Requested-With': 'account-mapper' };
 export const api = (p, o = {}) => fetch(`/api${p}`, { ...o, headers: { ...CSRF, ...(o.headers || {}) } }).then(async (r) => {
@@ -10,7 +10,7 @@ export const api = (p, o = {}) => fetch(`/api${p}`, { ...o, headers: { ...CSRF, 
   return j;
 });
 export const jsonOpts = (method, body) => ({ method, headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'account-mapper' }, body: JSON.stringify(body) });
-let saveTimer, fieldTimer, prefTimer, pending = false, saving = false, again = false, searchSeq = 0;
+let lastEdit = 0, saveTimer, fieldTimer, prefTimer, pending = false, saving = false, again = false, searchSeq = 0;
 export const hasPendingSave = () => pending;
 
 // Theme: 'system' follows the OS; 'light' / 'dark' are explicit. Remembered per browser.
@@ -40,6 +40,7 @@ export const useStore = create((set, get) => ({
   auth: { checked: false, setupNeeded: false, setupCodeRequired: false, user: null, notice: null }, loadingName: null, pushReview: false, context: {}, boardRev: 0, conflict: null, review: null, cardLayout: DEFAULT_LAYOUT, noteStyle: readNoteStyle(), items: [], tool: 'select', openPin: null, freshItem: null, recent: [], status: null, sfNotice: null, accounts: [], account: null, data: null, loading: false, error: null, fieldCatalog: [],
   // board state, persisted per account
   overrides: {}, // contactId -> { reportsTo, manual, region, role, es, enterprise, title, hidden, fields }
+  viewers: [], lastPush: null,
   positions: {}, extras: [], reference: DEFAULT_REF, accountNotes: '', toast: null, comments: {}, // comments: personId | '__board' -> [{ id, author, at, text }]
   showFields: ['Title'], showRelated: { opps: true, leads: true, cs: true }, hideUntitled: true, highlight: { role: true, es: true, ecm: true },
   view: 'board', psearch: { field: 'any', q: '', only: true, filters: { role: '', es: '', ecm: '', account: '', department: '', region: '', country: '', review: '' } }, collapsed: {}, collapseAll: null, outline: false, gridCols: ['title', 'reportsTo', 'role', 'es', 'vis'], selected: null, past: [], future: [], enrichTarget: null, focusId: null,
@@ -91,9 +92,10 @@ export const useStore = create((set, get) => ({
       const [data, fieldCatalog] = await Promise.all([get().fetchData(id, showFields), api('/contact-fields').catch(() => [])]);
       if (!Array.isArray(fieldCatalog)) throw new Error('The API server is out of date — stop and restart npm run dev');
       set({ account: data.account, data, fieldCatalog, loading: false, boardRev: board?._rev || 0, conflict: null, cardLayout: { ...DEFAULT_LAYOUT, ...((mine ? dflt?.layout : board?.cardLayout || dflt?.layout) || {}) },
-        context: board?.context || {}, overrides: board?.overrides || {}, positions: board?.positions || {}, extras: board?.extras || [], comments: board?.comments || {}, items: board?.items || [], tool: 'select', accountNotes: board?.accountNotes || '',
+        viewers: [], lastPush: null, context: board?.context || {}, overrides: board?.overrides || {}, positions: board?.positions || {}, extras: board?.extras || [], comments: board?.comments || {}, items: board?.items || [], tool: 'select', accountNotes: board?.accountNotes || '',
         reference: { ...DEFAULT_REF, ...(board?.reference || {}) }, showFields,
         showRelated: (mine ? dflt?.rel : board?.showRelated || dflt?.rel) || DEFAULT_REL, hideUntitled: board?.hideUntitled ?? true, highlight: { ...DEFAULT_HL, ...((mine ? dflt?.hl : board?.highlight || dflt?.hl) || {}) }, gridCols: board?.gridCols || ['title', 'reportsTo', 'role', 'es', 'vis'] });
+      get().placeUnplaced();
       // the homepage's "recent boards" tile
       const a = data.account;
       api(`/recent/${id}/open`, jsonOpts('POST', { name: a.Name, industry: a.Industry, country: a.BillingCountry, type: a.Type, website: a.Website || null, subsidiaries: Math.max(0, (data.family?.length || 1) - 1), parent: a.Parent || null, target: !!a.Target_Account__c, salesFocus: !!a.Sales_Focus__c, contacts: data.contacts.length })).catch(() => {});
@@ -103,14 +105,32 @@ export const useStore = create((set, get) => ({
   async removeRecent(id) { await api(`/recent/${id}`, { method: 'DELETE' }).catch(() => {}); get().loadRecent(); },
 
   persist() {
-    clearTimeout(saveTimer); pending = true;
+    if (get().auth.user?.role === 'viewer') return; // view-only: nothing is saved (the server refuses it too)
+    clearTimeout(saveTimer); pending = true; lastEdit = Date.now();
     saveTimer = setTimeout(() => get().flushNow(), 400);
   },
+  /** Picks up what other people saved on this board meanwhile. Skipped while you have unsaved edits (a save would then be checked for conflicts as usual). */
+  async refreshBoard() {
+    const { account, boardRev, conflict } = get(); if (!account || pending || saving || conflict) return;
+    const m = await api(`/boards/${account.Id}/rev`); if (!m || !m.rev || m.rev === boardRev) return;
+    const b = await api(`/boards/${account.Id}`); if (!b || pending || saving || get().account?.Id !== account.Id) return;
+    set({ overrides: b.overrides || {}, positions: b.positions || {}, extras: b.extras || [], comments: b.comments || {}, items: b.items || [], accountNotes: b.accountNotes || '', context: b.context || {}, boardRev: b._rev || 0 });
+    if (b._by && b._by !== get().auth.user?.username) get().flash?.(`${b._by.split('@')[0]} updated this board`);
+  },
+
+  /** Tells the server this board is open here (and whether we're editing); learns who else is looking and when it was last pushed. */
+  async heartbeat() {
+    const { account } = get(); if (!account || account.Id === 'demo-meridian') return;
+    const r = await api(`/boards/${account.Id}/live`, jsonOpts('POST', { editing: Date.now() - lastEdit < 30_000 }));
+    if (get().account?.Id !== account.Id) return;
+    set((s) => ({ viewers: r.viewers || [], lastPush: s.lastPush && r.lastPush && s.lastPush.at > r.lastPush.at ? s.lastPush : r.lastPush }));
+  },
+
   /** Save right now (also used when the page is closing, so a reload can't swallow a pending change). */
   flushNow(keepalive = false, force = false) {
     clearTimeout(saveTimer); pending = false;
     const { account, data, overrides, positions, extras, showFields, showRelated, hideUntitled, reference, comments, gridCols, accountNotes, highlight, items, cardLayout, context, boardRev, conflict } = get();
-    if (!account || (conflict && !force)) return; // somebody else changed this board: hold our save until the user chooses
+    if (!account || (conflict && !force) || get().auth.user?.role === 'viewer') return; // somebody else changed this board: hold our save until the user chooses
     if (saving) { again = true; return; }          // one save at a time, so a quick second edit can't look like a conflict with the first
     const meta = data ? { name: account.Name, industry: account.Industry, country: account.BillingCountry, type: account.Type, target: !!account.Target_Account__c, salesFocus: !!account.Sales_Focus__c, contacts: data.contacts.length } : undefined;
     const body = { overrides, positions, extras, showFields, showRelated, hideUntitled, reference, comments, gridCols, accountNotes, highlight, items, cardLayout, context, meta, baseRev: boardRev, ...(force ? { force: true } : {}) };
@@ -156,6 +176,35 @@ export const useStore = create((set, get) => ({
   snapshot() { const { overrides, positions, extras, items, past } = get(); set({ past: [...past.slice(-49), { overrides, positions, extras, items }], future: [] }); },
   undo() { const { past, future, overrides, positions, extras, items } = get(); if (!past.length) return; set({ ...past.at(-1), past: past.slice(0, -1), future: [...future, { overrides, positions, extras, items }] }); get().persist(); },
   redo() { const { past, future, overrides, positions, extras, items } = get(); if (!future.length) return; set({ ...future.at(-1), future: future.slice(0, -1), past: [...past, { overrides, positions, extras, items }] }); get().persist(); },
+
+  /** Go back k steps in one go, like picking an entry in Word's undo list. Redo walks forward again. */
+  undoTo(k) {
+    const { past, future, overrides, positions, extras, items } = get(); const n = past.length; if (k < 1 || k > n) return;
+    set({ ...past[n - k], past: past.slice(0, n - k), future: [...future, { overrides, positions, extras, items }, ...past.slice(n - k + 1).reverse()] }); get().persist();
+  },
+  /** One plain-words line per undo step, newest first: what that step changed. */
+  undoSteps() {
+    const { past, overrides, positions, extras, items } = get(); const cur = { overrides, positions, extras, items };
+    const names = Object.fromEntries(get().people().map((p) => [p.Id, p.Name]));
+    const FIELD = { reportsTo: 'reporting line', manual: 'reporting line', title: 'title', role: 'role', es: 'ES status', region: 'region', ecm: 'ECM', goal: 'immediate target', hidden: 'visibility', show: 'visibility', notes: 'notes' };
+    const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+    const describe = (a, b) => {
+      const ch = Object.keys({ ...a.overrides, ...b.overrides }).filter((id) => !same(a.overrides[id], b.overrides[id]));
+      if (ch.length === 1) {
+        const id = ch[0], x = a.overrides[id] || {}, y = b.overrides[id] || {};
+        const f = [...new Set(Object.keys({ ...x, ...y }).filter((k) => !same(x[k], y[k])).map((k) => FIELD[k] || k))];
+        return `Changed ${names[id] || 'a person'}’s ${f.slice(0, 2).join(' & ') || 'details'}`;
+      }
+      if (ch.length > 1) return `Changed ${ch.length} people`;
+      const mv = Object.keys({ ...a.positions, ...b.positions }).filter((id) => !same(a.positions[id], b.positions[id]));
+      if (mv.length === 1) return `Moved ${names[mv[0]] || 'a card'}`;
+      if (mv.length > 1) return `Moved ${mv.length} cards`;
+      if (a.extras.length !== b.extras.length) return b.extras.length > a.extras.length ? 'Added a person' : 'Removed a person';
+      if (!same(a.items, b.items)) return a.items.length !== b.items.length ? (b.items.length > a.items.length ? 'Added a note or shape' : 'Removed a note or shape') : 'Edited a note or shape';
+      return 'Changed the board';
+    };
+    return past.map((st, i) => describe(st, past[i + 1] || cur)).reverse();
+  },
 
   patch(id, fields) { get().snapshot(); set((s) => ({ overrides: { ...s.overrides, [id]: { ...s.overrides[id], ...fields } } })); get().persist(); },
   setPosition(id, pos) { get().snapshot(); set((s) => ({ positions: { ...s.positions, [id]: pos } })); get().persist(); },
@@ -276,6 +325,23 @@ export const useStore = create((set, get) => ({
     }, 350);
   },
 
+  /** People nobody has placed (new in Salesforce, or moved here since the last Auto-build) would sit beside the CEO. Give each a manager from the title, leaving every other line alone. */
+  placeUnplaced() {
+    const s = get(); const people = s.people(); const locked = {}; const todo = [];
+    for (const p of people) {
+      const o = s.overrides[p.Id];
+      const free = !p.external && !p.isGroup && !p.ReportsToId && !o?.manual && !p.reportsTo && rankOf(p.Title) >= 1 && rankOf(p.Title) <= 5;
+      if (free) todo.push(p.Id); else locked[p.Id] = p.reportsTo ?? null;
+    }
+    if (!todo.length) return 0;
+    const inferred = inferHierarchy(people, locked);
+    const next = { ...s.overrides }; let n = 0;
+    for (const id of todo) if (inferred[id]) { next[id] = { ...next[id], reportsTo: inferred[id], manual: false }; n++; }
+    if (!n) return 0;
+    set({ overrides: next }); get().persist();
+    return n;
+  },
+
   /** Re-infer parents from titles. Anything the user set by hand (or Salesforce Reports-To) is kept unless overwrite. */
   autoBuild({ overwrite = false } = {}) {
     get().snapshot();
@@ -286,28 +352,37 @@ export const useStore = create((set, get) => ({
       else if (p.ReportsToId && !p.external) locked[p.Id] = p.ReportsToId;
     }
     const inferred = inferHierarchy(people, locked);
-    const next = { ...s.overrides };
+    const next = { ...s.overrides }; const pos = { ...s.positions };
     for (const p of people) {
       if (p.Id in locked) continue;
+      // a card whose manager changes drops its old hand-placed spot, or it lands on top of the new layout
+      if ((p.reportsTo || null) !== (inferred[p.Id] || null)) delete pos[p.Id];
       next[p.Id] = { ...next[p.Id], reportsTo: inferred[p.Id], manual: false };
     }
     if (overwrite) for (const k of Object.keys(next)) if (next[k].manual) next[k] = { ...next[k], manual: false };
-    set({ overrides: next, positions: overwrite ? {} : s.positions }); get().persist();
+    set({ overrides: next, positions: overwrite ? {} : pos }); get().persist();
   },
 
   /** Effective people list with overrides applied. */
   people() {
     const { data, extras, overrides } = get();
     if (!data) return [];
-    return [...data.contacts, ...extras].map((c) => {
+    const list = [...data.contacts, ...extras].map((c) => {
       const o = overrides[c.Id] || {};
       return {
         ...c, ...(o.fields || {}), Title: o.title ?? c.Title, Region__c: o.region ?? c.Region__c ?? null,
         Contact_Role__c: o.role ?? c.Contact_Role__c, ES_Expansion_Status__c: o.es ?? c.ES_Expansion_Status__c,
-        Account_Target: o.enterprise ?? c.Account_Target, Enterprise_Coalition_Member__c: o.ecm ?? c.Enterprise_Coalition_Member__c, hidden: !!o.hidden, show: !!o.show, cstatus: o.cstatus ?? null,
+        Account_Target: o.enterprise ?? c.Account_Target, Enterprise_Coalition_Member__c: o.ecm ?? c.Enterprise_Coalition_Member__c, goal: !!o.goal, hidden: !!o.hidden, show: !!o.show, cstatus: o.cstatus ?? null,
         reportsTo: 'reportsTo' in o ? o.reportsTo : (c.ReportsToId ?? null), manual: !!o.manual,
       };
     });
+    // A reporting loop (A -> B -> A, from Salesforce or from two edits) would freeze the board: cut the loop at the person it comes back to.
+    const by = new Map(list.map((p) => [p.Id, p]));
+    for (const p of list) {
+      const seen = new Set([p.Id]); let cur = p.reportsTo;
+      while (cur && by.has(cur)) { if (cur === p.Id) { p.reportsTo = null; p.loopCut = true; break; } if (seen.has(cur)) break; seen.add(cur); cur = by.get(cur).reportsTo; }
+    }
+    return list;
   },
 
   /** Edits that differ from what Salesforce holds, per contact: {Id, ReportsToId?, Region__c?, Contact_Role__c?, ES_Expansion_Status__c?}. */
@@ -340,7 +415,8 @@ export const useStore = create((set, get) => ({
       changes = changes.filter((c) => keep.has(c.Id)).map((c) => ({ Id: c.Id, ...Object.fromEntries(keep.get(c.Id).map((k) => [k, c[k]])) }));
     }
     if (!changes.length) return { n: 0 };
-    const res = await api('/push', jsonOpts('POST', { changes }));
+    const res = await api('/push', jsonOpts('POST', { changes, boardId: get().account?.Id }));
+    if (res.some((r) => r.success)) set({ lastPush: { at: new Date().toISOString(), by: get().auth.user?.username, n: res.filter((r) => r.success).length } });
     return { n: changes.length, failed: res.filter((r) => !r.success).length };
   },
 }));

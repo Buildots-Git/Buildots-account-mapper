@@ -211,3 +211,10 @@ export async function accountsByIds(ids) {
   const r = await query(`SELECT Id, Name, Industry, BillingCountry, Type, Website, Target_Account__c, Sales_Focus__c FROM Account WHERE Id IN (${ok.map((i) => `'${i}'`).join(',')})`);
   return r.records.map(({ attributes, ...a }) => a);
 }
+
+/** Current values of the writable fields, read just before a push so the audit log can show before -> after. */
+export async function contactsNow(ids) {
+  const ok = [...new Set(ids)].filter((i) => /^[a-zA-Z0-9]{15,18}$/.test(i)); if (!ok.length) return {};
+  const r = await query(`SELECT Id, Name, ReportsToId, ReportsTo.Name, Region__c, Contact_Role__c, ES_Expansion_Status__c FROM Contact WHERE Id IN (${ok.map((i) => `'${i}'`).join(',')})`);
+  return Object.fromEntries(r.records.map((c) => [c.Id, { name: c.Name, ReportsToId: c.ReportsTo?.Name || c.ReportsToId || null, Region__c: c.Region__c ?? null, Contact_Role__c: c.Contact_Role__c ?? null, ES_Expansion_Status__c: c.ES_Expansion_Status__c ?? null }]));
+}

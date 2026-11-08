@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useStore, api, jsonOpts } from './store.js';
 import ThemeToggle from './ThemeToggle.jsx';
+import AdminPanel from './AdminPanel.jsx';
 
 const RULES = 'At least 10 characters. Avoid common words and your username.';
 
@@ -116,41 +117,70 @@ export function ForcedChangeScreen() {
 // ------------------------------------------------------------------------------------------ user menu + admin
 const suggest = () => { const a = new Uint8Array(15); crypto.getRandomValues(a); return btoa(String.fromCharCode(...a)).replace(/[+/=]/g, 'x').slice(0, 16) + 'A7'; };
 
+const ROLE_HELP = { admin: 'Everything, including users, the audit log and backups', editor: 'Changes boards. May push to Salesforce if switched on below', viewer: 'Looks only: cannot change or save anything' };
+
+/** Which accounts this person may open: everything, or only the ones picked here. */
+function AccessEditor({ u, onSave, onClose }) {
+  const [mode, setMode] = useState(u.access); const [boards, setBoards] = useState(u.boards || []);
+  const [q, setQ] = useState(''); const [hits, setHits] = useState([]);
+  useEffect(() => { if (q.trim().length < 2) { setHits([]); return; } const t = setTimeout(() => api(`/accounts?q=${encodeURIComponent(q)}`).then((r) => setHits(r.filter((a) => !a.Id.startsWith('demo')).slice(0, 8))).catch(() => {}), 250); return () => clearTimeout(t); }, [q]);
+  return (
+    <div className="acc-edit">
+      <label className="radiorow"><input type="radio" checked={mode === 'all'} onChange={() => setMode('all')} /> Every account</label>
+      <label className="radiorow"><input type="radio" checked={mode === 'assigned'} onChange={() => setMode('assigned')} /> Only the accounts I pick ({boards.length})</label>
+      {mode === 'assigned' && <>
+        <div className="pickrow">{boards.map((b) => <span key={b.id} className="tagx">{b.name}<button aria-label={`Remove ${b.name}`} onClick={() => setBoards(boards.filter((x) => x.id !== b.id))}>×</button></span>)}{!boards.length && <span className="muted sm">None yet — they will see an empty home screen.</span>}</div>
+        <input placeholder="Search an account to add…" value={q} onChange={(e) => setQ(e.target.value)} />
+        {hits.map((h) => <button key={h.Id} className="item" disabled={boards.some((b) => b.id === h.Id)} onClick={() => { setBoards([...boards, { id: h.Id, name: h.Name }]); setQ(''); setHits([]); }}>{h.Name}{h.BillingCountry ? ` · ${h.BillingCountry}` : ''}</button>)}
+      </>}
+      <div className="row" style={{ justifyContent: 'start', gap: 8 }}><button className="btn sm" onClick={() => onSave(mode, boards)}>Save</button><button className="link" onClick={onClose}>Cancel</button></div>
+    </div>
+  );
+}
+
 function UsersModal({ onClose }) {
   const me = useStore((s) => s.auth.user);
-  const [list, setList] = useState(null); const [err, setErr] = useState(null); const [note, setNote] = useState(null);
-  const [nu, setNu] = useState({ username: '', password: suggest(), role: 'user' });
+  const [list, setList] = useState(null); const [err, setErr] = useState(null); const [note, setNote] = useState(null); const [editing, setEditing] = useState(null);
+  const [nu, setNu] = useState({ username: '', password: suggest(), role: 'editor' });
   const load = () => api('/users').then(setList).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
   const run = async (fn, msg) => { setErr(null); setNote(null); try { setList(await fn()); if (msg) setNote(msg); } catch (e) { setErr(e.message); } };
+  const put = (name, body) => () => api(`/users/${encodeURIComponent(name)}`, jsonOpts('PUT', body));
   return (
     <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal" style={{ width: 'min(760px,96vw)', height: 'auto', maxHeight: '88vh' }} role="dialog" aria-label="Users">
-        <header className="modal-h"><div><h3>Users</h3><div className="muted sm">New users start as board-only (can't write to Salesforce) and must choose their own password at first sign-in.</div></div><button className="x" onClick={onClose} aria-label="Close">×</button></header>
+      <div className="modal" style={{ width: 'min(920px,97vw)', height: 'auto', maxHeight: '88vh' }} role="dialog" aria-label="Users">
+        <header className="modal-h"><div><h3>Users</h3><div className="muted sm">New users start as <b>editors</b> without Salesforce write access and must choose their own password at first sign-in.</div></div><button className="x" onClick={onClose} aria-label="Close">×</button></header>
         <div className="modal-body" style={{ padding: '0 18px 12px' }}>
           {err && <div className="warn">{err}</div>}{note && <div className="ok">{note}</div>}
           <table className="rv" style={{ tableLayout: 'auto' }}>
-            <thead><tr><th>Username</th><th>Role</th><th title="May write board changes back to Salesforce. Admins always can.">Salesforce write</th><th>Last sign-in</th><th /></tr></thead>
+            <thead><tr><th>Username</th><th>Role</th><th title="May write board changes back to Salesforce. Admins always can; viewers never.">Salesforce write</th><th title="Which accounts they can open">Accounts</th><th>Last sign-in</th><th /></tr></thead>
             <tbody>{(list || []).map((u) => (
-              <tr key={u.username}>
-                <td><b>{u.username}</b>{u.username === me.username && <span className="chip ok">you</span>}{u.mustChange && <span className="chip chk">temporary password</span>}</td>
-                <td><select value={u.role} disabled={u.username === me.username} onChange={(e) => run(() => api(`/users/${encodeURIComponent(u.username)}`, jsonOpts('PUT', { role: e.target.value })))}><option value="user">User</option><option value="admin">Admin</option></select></td>
-                <td><label className="row" style={{ gap: 6 }} title={u.role === 'admin' ? 'Admins can always write to Salesforce' : 'Allow this user to push changes to Salesforce'}><input type="checkbox" checked={u.canPush} disabled={u.role === 'admin'} onChange={(e) => run(() => api(`/users/${encodeURIComponent(u.username)}`, jsonOpts('PUT', { canPush: e.target.checked })))} />{u.role === 'admin' ? 'always' : u.canPush ? 'allowed' : 'board only'}</label></td>
+              <React.Fragment key={u.username}>
+              <tr className={u.disabled ? 'off' : ''}>
+                <td><b>{u.username}</b>{u.username === me.username && <span className="chip ok">you</span>}{u.mustChange && <span className="chip chk">temporary password</span>}{u.disabled && <span className="chip skip">deactivated</span>}</td>
+                <td><select style={{ minWidth: 104 }} value={u.role} title={ROLE_HELP[u.role]} disabled={u.username === me.username || u.disabled} onChange={(e) => run(put(u.username, { role: e.target.value }))}><option value="admin">Admin</option><option value="editor">Editor</option><option value="viewer">Viewer</option></select></td>
+                <td><label className="row" style={{ gap: 6 }} title={u.role === 'admin' ? 'Admins can always write to Salesforce' : u.role === 'viewer' ? 'Viewers cannot change anything' : 'Allow this user to push changes to Salesforce'}><input type="checkbox" checked={u.canPush} disabled={u.role !== 'editor' || u.disabled} onChange={(e) => run(put(u.username, { canPush: e.target.checked }))} />{u.role === 'admin' ? 'always' : u.role === 'viewer' ? 'never' : u.canPush ? 'allowed' : 'board only'}</label></td>
+                <td>{u.role === 'admin' ? <span className="muted sm">every account</span> : <button className="link" disabled={u.disabled} onClick={() => setEditing(editing === u.username ? null : u.username)}>{u.access === 'all' ? 'Every account' : `${u.boards.length} selected`} ▾</button>}</td>
                 <td className="muted sm">{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'never'}</td>
                 <td style={{ whiteSpace: 'nowrap' }}>
-                  <button className="link" onClick={() => { const pw = suggest(); if (confirm(`Reset the password for ${u.username}? They will be signed out and must choose a new one.\n\nTemporary password:  ${pw}\n\nCopy it now — it is not shown again.`)) run(() => api(`/users/${encodeURIComponent(u.username)}`, jsonOpts('PUT', { password: pw })), `Password reset for ${u.username}. Give them: ${pw}`); }}>Reset password</button>
-                  {u.username !== me.username && <> · <button className="link danger" onClick={() => { if (confirm(`Remove ${u.username}? They lose access immediately.`)) run(() => api(`/users/${encodeURIComponent(u.username)}`, { method: 'DELETE' })); }}>Remove</button></>}
+                  {!u.disabled && <><button className="link" onClick={() => { const pw = suggest(); if (confirm(`Reset the password for ${u.username}? They will be signed out and must choose a new one.\n\nTemporary password:  ${pw}\n\nCopy it now — it is not shown again.`)) run(put(u.username, { password: pw }), `Password reset for ${u.username}. Give them: ${pw}`); }}>Reset password</button> · </>}
+                  {u.username !== me.username && (u.disabled
+                    ? <><button className="link" onClick={() => run(put(u.username, { disabled: false }), `${u.username} can sign in again. Their stored keys and Salesforce link were deleted and must be set up again.`)}>Reactivate</button> · </>
+                    : <><button className="link danger" title="Ends their sessions, deletes their stored keys and Salesforce link, blocks sign-in. Their work stays on the boards." onClick={() => { if (confirm(`Deactivate ${u.username}?\n\n• they are signed out everywhere right now\n• they cannot sign in (including SSO)\n• their stored ZoomInfo / Lusha / Miro / Anthropic keys and Salesforce link are deleted\n• their boards, comments and history stay\n\nYou can reactivate them later.`)) run(put(u.username, { disabled: true }), `${u.username} was deactivated and their stored keys were deleted.`); }}>Deactivate</button> · </>)}
+                  {u.username !== me.username && <button className="link danger" onClick={() => { if (confirm(`Remove ${u.username} completely? They lose access immediately. (Deactivate keeps the account on the list.)`)) run(() => api(`/users/${encodeURIComponent(u.username)}`, { method: 'DELETE' })); }}>Remove</button>}
                 </td>
-              </tr>))}</tbody>
+              </tr>
+              {editing === u.username && <tr><td colSpan={6}><AccessEditor u={u} onClose={() => setEditing(null)} onSave={(mode, boards) => { run(put(u.username, { access: mode, boards }), `Saved account access for ${u.username}.`); setEditing(null); }} /></td></tr>}
+              </React.Fragment>))}</tbody>
           </table>
           <h4>Add a user</h4>
           <div className="adduser">
             <input placeholder="username (e.g. email)" autoCapitalize="none" value={nu.username} onChange={(e) => setNu({ ...nu, username: e.target.value })} />
             <input value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} title="Temporary password" />
-            <select value={nu.role} onChange={(e) => setNu({ ...nu, role: e.target.value })}><option value="user">User</option><option value="admin">Admin</option></select>
-            <button className="btn sm" disabled={!nu.username.trim()} onClick={() => run(() => api('/users', jsonOpts('POST', nu)), `Created ${nu.username}. Give them the temporary password: ${nu.password}`).then(() => setNu({ username: '', password: suggest(), role: 'user' }))}>Add</button>
+            <select value={nu.role} onChange={(e) => setNu({ ...nu, role: e.target.value })} title={ROLE_HELP[nu.role]}><option value="editor">Editor</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select>
+            <button className="btn sm" disabled={!nu.username.trim()} onClick={() => run(() => api('/users', jsonOpts('POST', nu)), `Created ${nu.username}. Give them the temporary password: ${nu.password}`).then(() => setNu({ username: '', password: suggest(), role: 'editor' }))}>Add</button>
           </div>
-          <p className="muted sm">The temporary password is only shown here. Send it to them privately.</p>
+          <p className="muted sm">The temporary password is only shown here. Send it to them privately. <b>Admin</b>: {ROLE_HELP.admin}. <b>Editor</b>: {ROLE_HELP.editor}. <b>Viewer</b>: {ROLE_HELP.viewer}.</p>
         </div>
       </div>
     </div>
@@ -191,10 +221,12 @@ export function UserMenu() {
           {sfLogin?.connected && <button className="item" onClick={() => { setOpen(false); if (confirm('Disconnect your Salesforce account? You will need to connect again to use the tool.')) disconnect(); }}>Disconnect Salesforce</button>}
           <button className="item" onClick={() => { setOpen(false); setDlg('password'); }}>Change password</button>
           {user.role === 'admin' && <button className="item" onClick={() => { setOpen(false); setDlg('users'); }}>Manage users…</button>}
+          {user.role === 'admin' && <button className="item" onClick={() => { setOpen(false); setDlg('audit'); }}>Audit log &amp; backups…</button>}
           <button className="item" onClick={() => { setOpen(false); signOut(); }}>Sign out</button>
         </div>
       )}
       {dlg === 'users' && <UsersModal onClose={() => setDlg(null)} />}
+      {dlg === 'audit' && <AdminPanel onClose={() => setDlg(null)} />}
       {dlg === 'password' && (
         <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) setDlg(null); }}>
           <div className="modal" style={{ width: 'min(420px,96vw)', height: 'auto', padding: 18, gap: 10 }} role="dialog" aria-label="Change password">

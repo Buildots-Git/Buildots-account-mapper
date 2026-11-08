@@ -31,6 +31,8 @@ const dec = (s) => {
 export const getCred = (user, provider) => { try { const v = read()[user]?.[provider]; return v ? dec(v) : null; } catch { return null; } };
 export function setCred(user, provider, value) { const all = read(); all[user] = { ...all[user], [provider]: enc(value) }; write(all); }
 export function delCred(user, provider) { const all = read(); if (all[user]) delete all[user][provider]; write(all); }
+/** Offboarding: delete every stored key for this person (ZoomInfo, Lusha, Miro, Anthropic, Salesforce link). Returns which were removed. */
+export function delAll(user) { const all = read(); const had = Object.keys(all[user] || {}); delete all[user]; write(all); return had; }
 // Never returns secrets - only whether a provider is connected and a non-secret label.
 export function credStatus(user) {
   return Object.fromEntries(['zoominfo', 'lusha', 'miro', 'anthropic'].map((p) => {

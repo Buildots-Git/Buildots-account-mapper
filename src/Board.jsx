@@ -148,13 +148,22 @@ export function useGraph() {
     const rowH = 56 + (showFields.includes('Title') ? 20 : 0) + (highlight.role || highlight.es ? 30 : 0) + extra * 18 + (showRelated.opps || showRelated.leads || showRelated.cs || cardLayout.comments ? 26 : 0) + (cardLayout.actions ? 30 : 0) + 24;
     const auto = layoutTree(people, parentOf, cardLayout.width, Math.max(120, Math.round(rowH * (0.8 + 0.2 * cardLayout.font))));
 
+    // A hand-placed card that now sits on top of another card (its manager changed, or the layout moved on) goes back to its automatic spot.
+    const spot = {}; const bw = cardLayout.width, bh = Math.max(80, rowH - 40);
+    people.forEach((p) => { spot[p.Id] = positions[p.Id] || auto[p.Id]; });
+    people.forEach((p) => {
+      const me = positions[p.Id]; if (!me) return;
+      const hit = people.some((q) => q.Id !== p.Id && Math.abs(me.x - spot[q.Id].x) < bw && Math.abs(me.y - spot[q.Id].y) < bh);
+      if (hit && auto[p.Id]) spot[p.Id] = auto[p.Id];
+    });
+
     const nodes = people.map((p) => {
       if (p.virtual) {
-        const { x, y } = positions[p.Id] || auto[p.Id];
+        const { x, y } = spot[p.Id];
         return { id: p.Id, type: 'account', deletable: false, position: { x, y }, data: { acct: p.acct, vid: p.Id, own: !!p.own, label: p.own ? 'Own contacts' : p.Name, root: !p.own && p.acct.Id === data.account.Id, n: desc(p.Id), branch: kids[p.Id] ? { n: desc(p.Id), folded: isFolded(p.Id) } : null } };
       }
       const par = parentOf(p); const r = region(p); const pr = par ? region(byId[par]) : null;
-      const { x, y } = positions[p.Id] || auto[p.Id];
+      const { x, y } = spot[p.Id];
       return { id: p.Id, type: 'contact', deletable: false, position: { x, y },
         data: { branch: kids[p.Id] ? { n: desc(p.Id), folded: isFolded(p.Id) } : null, hl: highlight, layout: cardLayout, acc: data.account.Id, labels, p, color: heatColor(p.ES_Expansion_Status__c), regionTint: regionColor(r, regions), showFields, counts: { ...counts(p.Id), notes: (comments[p.Id] || []).length }, notesList: comments[p.Id] || [], branchLabel: r && r !== pr ? r.toUpperCase() : null, dim: searching && !hit(p), hit: searching && hit(p), pend: pend.get(p.Id) || null } };
     });

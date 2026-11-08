@@ -67,10 +67,25 @@ const looksComplete = (n) => /^[A-Z][A-Za-z'’.-]+( [A-Z][A-Za-z'’.-]+){1,2}$
  * edges:   [{ from, to }]  ids of cards/headers (from = manager)
  * -> { rows, headers, source }
  */
+const NOT_IN_SF = /\bnot\s+in\s+sales\w*\.{0,3}/i;
+const STATUS_WORDS = /\b(nurture|qualified|unqualified|prospecting|engaged|cold|warm|hot|champion|blocker)\b/i;
+const isPlaceholder = (c) => /^\s*(gap|tbd|vacant|open (role|position)|\?+)\b/i.test(c.name || '') || /^\s*gap\s*:/i.test(c.title || '');
+
+/** Cards often carry the author's own status lines ("Not in Salesforce", "Nurture"). Use them instead of guessing. */
+function readHints(c) {
+  const parts = [c.title, c.notes].filter(Boolean).join(' · ');
+  const notInSf = NOT_IN_SF.test(parts) || NOT_IN_SF.test(c.name || '');
+  const clean = (t) => (t || '').replace(NOT_IN_SF, '').replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ').replace(/[·,;…\s]+$/, '').replace(/\.{2,}$/, '').trim();
+  const title = clean(c.title); const notes = clean(c.notes);
+  const status = (parts.match(STATUS_WORDS) || [])[0] || '';
+  return { notInSf, title, notes: [notes, notInSf ? 'Marked “Not in Salesforce” on the picture' : ''].filter(Boolean).join(' · '), status, placeholder: isPlaceholder(c) };
+}
+
 export function buildRows(cards, headers, edges, people, source) {
+  cards = cards.map((c) => ({ ...c, hint: readHints(c) })).map((c) => ({ ...c, title: c.hint.title, notes: c.hint.notes }));
   const used = new Set(); // each Salesforce contact can be matched once
   const rows = cards.map((c, i) => ({ id: c.id ?? `c${i}`, read: { name: c.name, title: c.title || '', group: c.group || '', color: c.color || 'neutral', notes: c.notes || '' },
-    cands: rankCandidates(c, people), matchId: null, action: 'skip', group: c.group || '', color: ['green', 'orange', 'yellow'].includes(c.color) ? c.color : '', title: c.title || '', notes: c.notes || '', parent: null, sure: false }));
+    cands: c.hint.notInSf || c.hint.placeholder ? [] : rankCandidates(c, people), hint: c.hint, matchId: null, action: 'skip', group: c.group || '', color: ['green', 'orange', 'yellow'].includes(c.color) ? c.color : '', title: c.title || '', notes: c.notes || '', parent: null, sure: false }));
   // strongest matches first, so a weaker card can't steal someone's contact
   for (const r of [...rows].sort((a, b) => (b.cands[0]?.score || 0) - (a.cands[0]?.score || 0))) {
     const best = r.cands.find((c) => !used.has(c.id)); if (!best) continue;
@@ -78,7 +93,7 @@ export function buildRows(cards, headers, edges, people, source) {
     const confident = best.kind === 'exact' || (best.kind === 'cut' && best.nameScore >= 0.9) || (best.nameScore >= 0.8 && best.evidence);
     if (confident) { r.matchId = best.id; r.action = 'match'; r.sure = best.kind === 'exact'; used.add(best.id); }
   }
-  for (const r of rows) if (r.action === 'skip' && looksComplete(r.read.name)) r.action = 'new';
+  for (const r of rows) if (r.action === 'skip' && !r.hint.placeholder && looksComplete(r.read.name)) r.action = 'new';
   // parents from connector lines
   for (const e of edges || []) { const child = rows.find((r) => r.id === e.to); if (child) child.parent = e.from; }
   return { rows, headers: (headers || []).map((h) => ({ id: h.id, text: h.text, parent: (edges || []).find((e) => e.to === h.id)?.from || null })), source };

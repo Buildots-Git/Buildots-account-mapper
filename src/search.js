@@ -1,6 +1,6 @@
 import { regionOf, ES_STATES, titleRecognized } from './hierarchy.js';
 
-export const FILTERS = [['role', 'Role'], ['es', 'ES status'], ['ecm', 'ECM'], ['account', 'Account'], ['department', 'Department'], ['region', 'Region'], ['country', 'Country'], ['review', 'Title check']];
+export const FILTERS = [['role', 'Role'], ['es', 'ES status'], ['ecm', 'ECM'], ['goal', 'Target'], ['account', 'Account'], ['department', 'Department'], ['region', 'Region'], ['country', 'Country'], ['review', 'Title check']];
 export const NO_FILTERS = { role: '', es: '', ecm: '', account: '', department: '', region: '', country: '', review: '' };
 
 /** The value a dropdown filter compares against. */
@@ -9,6 +9,7 @@ export function filterValue(p, k) {
     case 'role': return p.Contact_Role__c || '';
     case 'es': return p.ES_Expansion_Status__c || '';
     case 'ecm': return p.Enterprise_Coalition_Member__c ? 'ECM only' : 'Not ECM';
+    case 'goal': return p.goal ? 'Immediate targets' : 'Not a target';
     case 'account': return p.AccountName || '';
     case 'department': return p.Department || '';
     case 'region': return p.Region__c || regionOf(p) || '';

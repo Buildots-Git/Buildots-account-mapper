@@ -8,6 +8,7 @@ export default function Legend() {
       <button className="link" onClick={() => setOpen(!open)}>{open ? 'Legend ▾' : 'Legend ▸'}</button>
       {open && <>
         <div style={{ marginTop: 6 }}><span className="ecm-dot">★</span> Enterprise Coalition Member (ECM)</div>
+        <div><span className="goal-dot">◎</span> Immediate target (click ◎ on a card)</div>
         <b className="sm" style={{ display: 'block' }}>Top bar and lines = ES status</b>
         {ES_STATES.map((k) => <div key={k}><span className="sw" style={{ background: heatColor(k) }} />{k}</div>)}
         <div><span className="sw" style={{ background: ES_NEUTRAL }} />No ES status</div>

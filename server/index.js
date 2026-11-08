@@ -10,7 +10,8 @@ import { readOrgChart } from './vision.js';
 import { readChart } from './ocr.js';
 import * as sf from './salesforce.js';
 import { providers } from './enrich.js';
-import { permissions, legacyWriters, audit, currentUser } from './access.js';
+import { permissions, legacyWriters, audit, currentUser, remember, nameOf, boardDiff, readAudit } from './access.js';
+import * as versions from './versions.js';
 import { root, dataPath } from './paths.js';
 import * as auth from './auth.js';
 
@@ -105,15 +106,27 @@ app.post('/api/users', auth.requireAdmin, wrap(async (req, res) => {
   audit({ action: 'user-created', user: req.user.username, target: u.username, role: u.role }); res.json(auth.listUsers());
 }));
 app.put('/api/users/:name', auth.requireAdmin, wrap(async (req, res) => {
-  const { role, password, canPush } = req.body || {};
+  const { role, password, canPush, access, boards: boardList, disabled } = req.body || {};
+  const target = auth.normUser(req.params.name);
+  if (typeof disabled === 'boolean') {
+    if (disabled && target === req.user.username) return res.status(400).json({ error: 'You cannot deactivate your own account.' });
+    auth.setDisabled(target, disabled);
+    if (disabled) { // offboarding: sessions are already ended; now remove every stored key and the Salesforce link
+      const removed = creds.delAll(target); sfauth.disconnect(target);
+      audit({ action: 'user-deactivated', user: req.user.username, target, removedKeys: removed });
+    } else audit({ action: 'user-reactivated', user: req.user.username, target });
+  }
+  if (access) { auth.setAccess(target, access, boardList); audit({ action: 'user-access-changed', user: req.user.username, target, access, boards: access === 'assigned' ? (boardList || []).map((b) => b.name || b.id) : undefined }); }
   if (typeof canPush === 'boolean') auth.setCanPush(req.params.name, canPush);
   if (role) { if (req.params.name === req.user.username && role !== 'admin') return res.status(400).json({ error: 'You cannot remove your own admin role.' }); auth.setRole(req.params.name, role); }
   if (password) { await auth.setPassword(req.params.name, password, { mustChange: req.params.name !== req.user.username }); auth.endUserSessions(req.params.name); }
-  audit({ action: 'user-updated', user: req.user.username, target: req.params.name, role: role || undefined, canPush, passwordReset: !!password }); res.json(auth.listUsers());
+  if (role || typeof canPush === 'boolean' || password) audit({ action: 'user-updated', user: req.user.username, target: req.params.name, role: role || undefined, canPush: typeof canPush === 'boolean' ? canPush : undefined, passwordReset: password ? true : undefined });
+  res.json(auth.listUsers());
 }));
 app.delete('/api/users/:name', auth.requireAdmin, wrap(async (req, res) => {
   if (req.params.name === req.user.username) return res.status(400).json({ error: 'You cannot remove your own account.' });
-  auth.removeUser(req.params.name); audit({ action: 'user-removed', user: req.user.username, target: req.params.name }); res.json(auth.listUsers());
+  auth.removeUser(req.params.name); const removed = creds.delAll(auth.normUser(req.params.name)); sfauth.disconnect(auth.normUser(req.params.name));
+  audit({ action: 'user-removed', user: req.user.username, target: req.params.name, removedKeys: removed }); res.json(auth.listUsers());
 }));
 { const n = auth.migrateWriters(legacyWriters()); if (n) console.log(`Moved ${n} Salesforce writer(s) onto the Users list`); }
 const boards = dataPath('boards');
@@ -132,14 +145,16 @@ app.get('/api/status', wrap(async (req, res) => {
 app.get('/api/accounts', wrap(async (req, res) => {
   const q = String(req.query.q || '');
   const demo = demoAccounts.filter((a) => a.Name.toLowerCase().includes(q.toLowerCase()));
-  if (useDemo()) return res.json(demo);
-  res.json([...(await sf.searchAccounts(q)), ...(q ? [] : demo)]);
+  const mine = (list) => list.filter((a) => auth.canSeeBoard(req.user, a.Id)); // people limited to certain accounts only see those
+  if (useDemo()) return res.json(mine(demo));
+  res.json(mine([...(await sf.searchAccounts(q)), ...(q ? [] : demo)]));
 }));
 
-app.get('/api/accounts/:id', wrap(async (req, res) => {
-  if (req.params.id === 'demo-meridian') return res.json(demoAccountData);
+app.get('/api/accounts/:id', auth.requireBoard, wrap(async (req, res) => {
+  if (req.params.id === 'demo-meridian') { remember(demoAccountData.contacts); return res.json(demoAccountData); }
   const fields = String(req.query.fields || '').split(',').filter(Boolean);
-  res.json(await sf.loadAccount(req.params.id, fields));
+  const data = await sf.loadAccount(req.params.id, fields); remember(data.contacts);
+  res.json(data);
 }));
 
 app.get('/api/contact-fields', wrap(async (_req, res) => res.json(useDemo() ? demoFields : await sf.contactFields())));
@@ -147,7 +162,28 @@ app.get('/api/contact-fields', wrap(async (_req, res) => res.json(useDemo() ? de
 // Boards carry a revision number. A save based on an older revision means somebody else saved in between: refuse it (409)
 // instead of silently overwriting their work.
 const readBoard = (id) => { try { return JSON.parse(fs.readFileSync(boardFile(id), 'utf8')); } catch { return null; } };
-app.get('/api/boards/:id', (req, res) => res.json(readBoard(req.params.id)));
+app.get('/api/boards/:id', auth.requireBoard, (req, res) => res.json(readBoard(req.params.id)));
+// Cheap "has anyone saved since?" check for open boards (polled every few seconds); the file is only re-read when it changed on disk.
+const revCache = new Map();
+app.get('/api/boards/:id/rev', auth.requireBoard, (req, res) => {
+  const f = boardFile(req.params.id); let m; try { m = fs.statSync(f).mtimeMs; } catch { return res.json({ rev: 0 }); }
+  let c = revCache.get(f); if (!c || c.m !== m) { const b = readBoard(req.params.id); c = { m, rev: b?._rev || 0, by: b?._by || null, at: b?._at || null }; revCache.set(f, c); }
+  res.json({ rev: c.rev, by: c.by, at: c.at });
+});
+// ---- who has this board open right now, and when it was last pushed to Salesforce ----
+const here = new Map(); // boardId -> Map(username -> { at, editing })
+const pushesFile = dataPath('pushes.json');
+const readPushes = () => { try { return JSON.parse(fs.readFileSync(pushesFile, 'utf8')); } catch { return {}; } };
+const rememberPush = (boardId, info) => { if (!boardId) return; const all = readPushes(); all[boardId] = info; try { fs.writeFileSync(pushesFile, JSON.stringify(all)); } catch { /* the badge just won't show a time */ } };
+app.post('/api/boards/:id/live', auth.requireBoard, (req, res) => {
+  const id = req.params.id, me = req.user.username, now = Date.now();
+  const m = here.get(id) || here.set(id, new Map()).get(id);
+  m.set(me, { at: now, editing: !!req.body?.editing });
+  const viewers = [];
+  for (const [u, v] of m) { if (now - v.at > 20_000) { m.delete(u); continue; } if (u !== me) viewers.push({ user: u, editing: v.editing }); }
+  res.json({ viewers, lastPush: readPushes()[id] || null });
+});
+app.delete('/api/boards/:id/live', auth.requireBoard, (req, res) => { here.get(req.params.id)?.delete(req.user.username); res.json({ ok: true }); });
 // ---- per-user view settings (card layout etc.) so what you see follows YOU, not the board ----
 const prefsFile = dataPath('prefs.json');
 const readPrefs = () => { try { return JSON.parse(fs.readFileSync(prefsFile, 'utf8')); } catch { return {}; } };
@@ -159,12 +195,15 @@ const readRecent = () => { try { return JSON.parse(fs.readFileSync(recentFile, '
 const writeRecent = (r) => fs.writeFileSync(recentFile, JSON.stringify(r));
 const sumLen = (o) => Object.values(o || {}).reduce((a, v) => a + (Array.isArray(v) ? v.length : 0), 0);
 
-app.put('/api/boards/:id', (req, res) => {
+app.put('/api/boards/:id', auth.requireBoard, auth.requireEditor, (req, res) => {
   const id = req.params.id; const { baseRev, force, ...b } = req.body || {};
   const cur = readBoard(id); const curRev = cur?._rev || 0;
   if (!force && baseRev !== undefined && baseRev !== curRev) return res.status(409).json({ error: 'This board was changed by someone else.', code: 'conflict', rev: curRev, by: cur?._by || null, at: cur?._at || null });
   b._rev = curRev + 1; b._by = currentUser(req); b._at = new Date().toISOString();
+  const diff = boardDiff(cur, b); const touched = diff.people.length;
+  try { versions.beforeSave(id, cur, touched, b._by); } catch (e) { console.error('Could not keep a version of the board:', e.message); } // history must never block a save
   fs.writeFileSync(boardFile(id), JSON.stringify(b));
+  if (touched || diff.added || diff.notes || diff.comments) audit({ action: 'board-saved', user: b._by, board: id, boardName: b.meta?.name || cur?.meta?.name || null, rev: b._rev, people: diff.people.slice(0, 60), morePeople: Math.max(0, touched - 60), added: diff.added, notes: diff.notes, comments: diff.comments });
   if (b.meta?.name) { // keep the homepage tile's numbers in step with the board
     const r = readRecent(); const prev = r[id] || {};
     r[id] = { ...prev, id, ...b.meta, openedAt: prev.openedAt || new Date().toISOString(), updatedAt: new Date().toISOString(),
@@ -173,7 +212,17 @@ app.put('/api/boards/:id', (req, res) => {
   }
   res.json({ ok: true, rev: b._rev });
 });
-app.post('/api/recent/:id/open', (req, res) => {
+// ---- history & restore ----
+app.get('/api/boards/:id/versions', auth.requireBoard, auth.requireEditor, (req, res) => res.json(versions.listVersions(req.params.id)));
+app.post('/api/boards/:id/restore', auth.requireBoard, auth.requireEditor, wrap(async (req, res) => {
+  const id = req.params.id; const old = versions.loadVersion(id, req.body?.key); const cur = readBoard(id);
+  versions.snapshot(id, cur, 'before-restore', currentUser(req)); // nothing is lost: the state you replace is kept as a version too
+  const b = { ...old, _rev: (cur?._rev || 0) + 1, _by: currentUser(req), _at: new Date().toISOString() };
+  fs.writeFileSync(boardFile(id), JSON.stringify(b));
+  audit({ action: 'board-restored', user: b._by, board: id, boardName: b.meta?.name || cur?.meta?.name || null, restored: req.body.key, rev: b._rev });
+  res.json({ ok: true, rev: b._rev });
+}));
+app.post('/api/recent/:id/open', auth.requireBoard, (req, res) => {
   const r = readRecent(); const id = req.params.id;
   r[id] = { ...(r[id] || {}), id, ...req.body, openedAt: new Date().toISOString() };
   writeRecent(r); res.json({ ok: true });
@@ -194,8 +243,8 @@ async function backfillRecent() {
   } catch { /* Salesforce unavailable: the tiles simply appear once it is */ }
   return r;
 }
-app.get('/api/recent', wrap(async (_req, res) => res.json(Object.values(await backfillRecent()).sort((a, b) => String(b.openedAt).localeCompare(String(a.openedAt))).slice(0, 24))));
-app.delete('/api/recent/:id', (req, res) => { const r = readRecent(); delete r[req.params.id]; writeRecent(r); res.json({ ok: true }); });
+app.get('/api/recent', wrap(async (req, res) => res.json(Object.values(await backfillRecent()).filter((r) => auth.canSeeBoard(req.user, r.id)).sort((a, b) => String(b.openedAt).localeCompare(String(a.openedAt))).slice(0, 24))));
+app.delete('/api/recent/:id', auth.requireBoard, auth.requireEditor, (req, res) => { const r = readRecent(); delete r[req.params.id]; writeRecent(r); res.json({ ok: true }); });
 
 app.post('/api/enrich/:provider', wrap(async (req, res) => {
   const fn = providers[req.params.provider];
@@ -238,10 +287,27 @@ app.post('/api/push', wrap(async (req, res) => {
   if (useDemo()) return res.status(403).json({ error: 'Demo data cannot be pushed' });
   if (!perm.switchOn) return res.status(403).json({ error: 'Writes to Salesforce are switched off (ALLOW_WRITE=1 to enable)' });
   if (!perm.writer) return res.status(403).json({ error: 'You do not have permission to update Salesforce — your changes stay on the board' });
-  const result = await sf.updateContacts(req.body.changes);
-  audit({ user: perm.email, sfUser: sfauth.perUserEnabled() ? sfauth.status(perm.email).label : undefined, org: process.env.SF_ORG || 'prod', changes: req.body.changes, failed: result.filter((r) => !r.success).length });
+  const changes = req.body.changes || [];
+  let before = {}; try { before = await sf.contactsNow(changes.map((c) => c.Id)); } catch { /* the audit entry then has no "before"; the push itself goes ahead */ }
+  const result = await sf.updateContacts(changes);
+  const rows = [];
+  for (const { Id, ...f } of changes) {
+    const ok = result.find((r) => r.id === Id);
+    for (const [field, to] of Object.entries(f)) rows.push({ id: Id, name: before[Id]?.name || nameOf(Id), field, before: before[Id] ? before[Id][field] ?? null : undefined, after: field === 'ReportsToId' && to ? nameOf(to) || to : to ?? null, ok: !!ok?.success, error: ok?.success ? undefined : ok?.error });
+  }
+  audit({ action: 'sf-push', user: perm.email, sfUser: sfauth.perUserEnabled() ? sfauth.status(perm.email).label : undefined, org: process.env.SF_ORG || 'prod', rows, failed: result.filter((r) => !r.success).length });
+  if (req.body.boardId && result.some((r) => r.success)) rememberPush(String(req.body.boardId), { at: new Date().toISOString(), by: perm.email, n: result.filter((r) => r.success).length, failed: result.filter((r) => !r.success).length });
   res.json(result);
 }));
+
+// ---- admin: audit log and backups ----
+app.get('/api/admin/audit', auth.requireAdmin, (req, res) => res.json(readAudit(req.query)));
+app.get('/api/admin/backups', auth.requireAdmin, (_req, res) => res.json(versions.backupStatus()));
+app.post('/api/admin/backups/run', auth.requireAdmin, wrap(async (req, res) => {
+  const r = versions.dailyBackup(boards, { force: true }); audit({ action: 'backup-run', user: req.user.username, ...r }); res.json({ ...r, ...versions.backupStatus() });
+}));
+const runDaily = () => { try { const r = versions.dailyBackup(boards); if (r.boards) audit({ action: 'backup-daily', user: 'system', ...r }); } catch (e) { console.error('Daily backup failed:', e.message); } };
+runDaily(); setInterval(runDaily, 3600_000).unref(); // at start-up, then every hour (it only copies what today's folder does not have yet)
 
 const dist = path.join(root, '../dist');
 if (fs.existsSync(dist)) { app.use(express.static(dist)); app.use((_q, r) => r.sendFile(path.join(dist, 'index.html'))); }

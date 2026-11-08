@@ -28,7 +28,7 @@ export default function OutlineView() {
       <>
         <div className={`ol-row${p.Id === selected ? ' sel' : ''}${active && !hit ? ' dim' : ''}${hit ? ' hit' : ''}`} style={{ paddingLeft: 12 + depth * 20 }} onClick={() => select(p.Id)}>
           {ch.length ? <button className="ol-tw" onClick={(e) => { e.stopPropagation(); setOpen({ ...open, [p.Id]: !o }); }}>{o ? '▾' : '▸'}</button> : <span className="ol-tw" />}
-          <b>{p.Name}</b>{p.Enterprise_Coalition_Member__c && <span className="ecm-dot"> ★</span>}
+          <b>{p.Name}</b>{p.Enterprise_Coalition_Member__c && <span className="ecm-dot"> ★</span>}{p.goal && <span className="goal-dot" title="Immediate target"> ◎</span>}
           <span className="muted"> {p.Title || 'No title'}</span>
           {p.Contact_Role__c && <span className="pill role">{p.Contact_Role__c}</span>}
           {p.ES_Expansion_Status__c && <span className="pill es" style={{ color: fg }}>{p.ES_Expansion_Status__c}</span>}
